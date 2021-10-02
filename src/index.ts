@@ -36,6 +36,7 @@ app.post('/api/webhooks/:id/:token', async (req, res) => {
         } else {
             console.log(`${req.params.id} hit ratelimit`);
 
+            res.setHeader('X-RateLimit-Limit', 5);
             res.setHeader('X-RateLimit-Remaining', 0);
             res.setHeader('X-RateLimit-Reset', ratelimit);
 
@@ -47,8 +48,8 @@ app.post('/api/webhooks/:id/:token', async (req, res) => {
     }
 
     const response = await client.post(
-        `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}?wait=${wait}&thread_id=${
-            threadId || ''
+        `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}?wait=${wait}${
+            threadId ? '&thread_id=' + threadId : ''
         }`,
         body,
         {
