@@ -1,6 +1,7 @@
 import axios from 'axios';
 import bodyParser from 'body-parser';
 import Express, { NextFunction, Request, Response } from 'express';
+import slowDown from 'express-slow-down';
 
 import fs from 'fs';
 
@@ -10,8 +11,30 @@ const ratelimits: { [id: string]: number } = {};
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 
+app.set('trust proxy', config.trustProxy);
+
 app.use(require('helmet')());
 app.use(bodyParser.json());
+
+// catch spammers that ignore ratelimits in a way that can cause servers to yield for long periods of time
+
+const webhookPostRatelimit = slowDown({
+    windowMs: 2000,
+    delayAfter: 5,
+    delayMs: 500,
+    maxDelayMs: 30000,
+
+    keyGenerator(req, res) {
+        return req.params.id ?? req.ip; // use the webhook ID as a ratelimiting key, otherwise use IP
+    }
+});
+
+const unknownEndpointRatelimit = slowDown({
+    windowMs: 10000,
+    delayAfter: 5,
+    delayMs: 500,
+    maxDelayMs: 30000
+});
 
 const client = axios.create({
     validateStatus: () => true
@@ -24,13 +47,13 @@ app.get('/', async (req, res) => {
     });
 });
 
-app.post('/api/webhooks/:id/:token', async (req, res) => {
+app.post('/api/webhooks/:id/:token', webhookPostRatelimit, async (req, res) => {
     const wait = req.query.wait ?? false;
     const threadId = req.query.thread_id;
 
     const body = req.body;
 
-    // if we know this webhook is already ratelimited, don't hit discord but queue the request instead
+    // if we know this webhook is already ratelimited, don't hit discord but reject the request instead
     const ratelimit = ratelimits[req.params.id];
     if (ratelimit) {
         if (ratelimit < Date.now() / 1000) {
@@ -77,7 +100,14 @@ app.post('/api/webhooks/:id/:token', async (req, res) => {
     return res.status(response.status).json(response.data);
 });
 
-app.use(async (err: Error, req: Request, res: Response, next: NextFunction) => {
+app.use(webhookPostRatelimit, (req, res, next) => {
+    return res.status(404).json({
+        proxy: true,
+        message: 'Unknown endpoint.'
+    });
+});
+
+app.use(unknownEndpointRatelimit, async (err: Error, req: Request, res: Response, next: NextFunction) => {
     console.error(err);
 
     return res.status(500).json({
