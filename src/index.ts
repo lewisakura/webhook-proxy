@@ -100,14 +100,14 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, async (req, res) => {
     return res.status(response.status).json(response.data);
 });
 
-app.use(webhookPostRatelimit, (req, res, next) => {
+app.use(unknownEndpointRatelimit, (req, res, next) => {
     return res.status(404).json({
         proxy: true,
         message: 'Unknown endpoint.'
     });
 });
 
-app.use(unknownEndpointRatelimit, async (err: Error, req: Request, res: Response, next: NextFunction) => {
+app.use(async (err: Error, req: Request, res: Response, next: NextFunction) => {
     console.error(err);
 
     return res.status(500).json({
