@@ -19,7 +19,8 @@ const client = axios.create({
 
 app.get('/', async (req, res) => {
     return res.json({
-        message: 'Webhook proxy up and running.'
+        message: 'Webhook proxy up and running.',
+        github: 'https://github.com/LewisTehMinerz/webhook-proxy'
     });
 });
 
