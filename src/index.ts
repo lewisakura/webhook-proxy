@@ -10,6 +10,7 @@ const ratelimits: { [id: string]: number } = {};
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 
+app.use(require('helmet')());
 app.use(bodyParser.json());
 
 const client = axios.create({
