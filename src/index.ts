@@ -34,6 +34,7 @@ if (config.autoBlock) {
                 blocked[k] = '[Automated] Ratelimited >50 times within a minute.';
                 blockedAny = true;
                 console.log('blocked', k, 'for >50 ratelimit violations within 1 minute');
+                delete violations[k];
             }
         }
 
