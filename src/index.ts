@@ -9,9 +9,39 @@ import path from 'path';
 // [webhook id]: reset time
 const ratelimits: { [id: string]: number } = {};
 
+// [webhook id]: count
+const violations: { [id: string]: { count: number; expires: number } } = {};
+
 const app = Express();
-const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as { port: number; trustProxy: boolean };
+const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
+    port: number;
+    trustProxy: boolean;
+    autoBlock: boolean;
+};
 const blocked = JSON.parse(fs.readFileSync('./blocklist.json', 'utf-8')) as { [id: string]: string };
+
+if (config.autoBlock) {
+    setInterval(() => {
+        let blockedAny = false;
+
+        for (const [k, v] of Object.entries(violations)) {
+            if (v.expires < Date.now() / 1000) {
+                delete violations[k];
+                continue;
+            }
+
+            if (v.count > 50) {
+                blocked[k] = '[Automated] Ratelimited >50 times within a minute.';
+                blockedAny = true;
+                console.log('blocked', k, 'for >50 ratelimit violations within 1 minute');
+            }
+        }
+
+        if (blockedAny) {
+            fs.writeFileSync('./blocklist.json', JSON.stringify(blocked, null, 4));
+        }
+    }, 1000);
+}
 
 app.set('trust proxy', config.trustProxy);
 
@@ -89,6 +119,9 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             res.setHeader('X-RateLimit-Limit', 5);
             res.setHeader('X-RateLimit-Remaining', 0);
             res.setHeader('X-RateLimit-Reset', ratelimit);
+
+            violations[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 60 };
+            violations[req.params.id].count++;
 
             return res.status(429).json({
                 proxy: true,
