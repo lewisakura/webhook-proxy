@@ -26,7 +26,7 @@ app.use(bodyParser.json());
 const webhookPostRatelimit = slowDown({
     windowMs: 2000,
     delayAfter: 5,
-    delayMs: 500,
+    delayMs: 1000,
     maxDelayMs: 30000,
 
     keyGenerator(req, res) {
@@ -37,7 +37,7 @@ const webhookPostRatelimit = slowDown({
 const webhookInvalidPostRatelimit = slowDown({
     windowMs: 30000,
     delayAfter: 3,
-    delayMs: 500,
+    delayMs: 1000,
     maxDelayMs: 30000,
 
     keyGenerator(req, res) {
