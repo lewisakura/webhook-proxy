@@ -12,6 +12,12 @@ const ratelimits: { [id: string]: number } = {};
 // [webhook id]: count
 const violations: { [id: string]: { count: number; expires: number } } = {};
 
+// [webhook id]: expiry
+const nonExistent: { [id: string]: number } = {};
+
+// [webhook id]: expiry
+const badRequests: { [id: string]: { count: number; expires: number } } = {};
+
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
     port: number;
@@ -35,6 +41,36 @@ if (config.autoBlock) {
                 blockedAny = true;
                 console.log('blocked', k, 'for >50 ratelimit violations within 1 minute');
                 delete violations[k];
+            }
+        }
+
+        if (blockedAny) {
+            fs.writeFileSync('./blocklist.json', JSON.stringify(blocked, null, 4));
+        }
+    }, 1000);
+
+    setInterval(() => {
+        for (const [k, v] of Object.entries(nonExistent)) {
+            if (v < Date.now() / 1000) {
+                delete nonExistent[k];
+            }
+        }
+    }, 1000);
+
+    setInterval(() => {
+        let blockedAny = false;
+
+        for (const [k, v] of Object.entries(badRequests)) {
+            if (v.expires < Date.now() / 1000) {
+                delete badRequests[k];
+                continue;
+            }
+
+            if (v.count > 50) {
+                blocked[k] = '[Automated] Made >100 bad requests within 10 minutes.';
+                blockedAny = true;
+                console.log('blocked', k, 'for >100 bad requests within 10 minutes');
+                delete badRequests[k];
             }
         }
 
@@ -109,6 +145,13 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         });
     }
 
+    if (nonExistent[req.params.id]) {
+        return res.status(404).json({
+            proxy: true,
+            error: 'This webhook does not exist. Requests to this ID have been blocked temporarily.'
+        });
+    }
+
     // if we know this webhook is already ratelimited, don't hit discord but reject the request instead
     const ratelimit = ratelimits[req.params.id];
     if (ratelimit) {
@@ -144,8 +187,19 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         }
     );
 
-    // process ratelimits
+    if (response.status === 404) {
+        nonExistent[req.params.id] = Date.now() / 1000 + 60;
+        return res.status(404).json({
+            proxy: true,
+            error: 'This webhook does not exist. Requests to this ID have been blocked temporarily.'
+        });
+    }
+
+    if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+    }
+
     if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
+        // process ratelimits
         ratelimits[req.params.id] = parseInt(response.headers['x-ratelimit-reset']);
     }
 
