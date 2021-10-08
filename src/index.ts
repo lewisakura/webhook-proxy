@@ -196,6 +196,8 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     }
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+        badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
+        badRequests[req.params.id].count++;
     }
 
     if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
