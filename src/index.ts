@@ -2,18 +2,22 @@ import axios from 'axios';
 import bodyParser from 'body-parser';
 import Express, { NextFunction, Request, Response } from 'express';
 import slowDown from 'express-slow-down';
+import Cache from 'node-cache';
+import { BannedIP, BannedWebhook, PrismaClient } from '@prisma/client';
 
 import fs from 'fs';
 import path from 'path';
+
+const db = new PrismaClient();
+
+const webhookBansCache = new Cache({ stdTTL: 60 * 60 * 24 });
+const ipBansCache = new Cache({ stdTTL: 60 * 60 * 24 });
 
 // [webhook id]: reset time
 const ratelimits: { [id: string]: number } = {};
 
 // [webhook id]: count
 const violations: { [id: string]: { count: number; expires: number } } = {};
-
-// [webhook id]: expiry
-const nonExistent: { [id: string]: number } = {};
 
 // [webhook id]: expiry
 const badRequests: { [id: string]: { count: number; expires: number } } = {};
@@ -24,11 +28,10 @@ const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
     trustProxy: boolean;
     autoBlock: boolean;
 };
-const blocked = JSON.parse(fs.readFileSync('./blocklist.json', 'utf-8')) as { [id: string]: string };
 
 if (config.autoBlock) {
-    setInterval(() => {
-        let blockedAny = false;
+    setInterval(async () => {
+        const blocks = [];
 
         for (const [k, v] of Object.entries(violations)) {
             if (v.expires < Date.now() / 1000) {
@@ -37,28 +40,33 @@ if (config.autoBlock) {
             }
 
             if (v.count > 50) {
-                blocked[k] = '[Automated] Ratelimited >50 times within a minute.';
-                blockedAny = true;
+                // whilst this should never happen, we'll upsert anyway
+                blocks.push(
+                    db.bannedWebhook.upsert({
+                        where: {
+                            id: k
+                        },
+                        create: {
+                            id: k,
+                            reason: '[Automated] Ratelimited >50 times within a minute.'
+                        },
+                        update: {
+                            reason: '[Automated] Ratelimited >50 times within a minute.'
+                        }
+                    })
+                );
                 console.log('blocked', k, 'for >50 ratelimit violations within 1 minute');
                 delete violations[k];
             }
         }
 
-        if (blockedAny) {
-            fs.writeFileSync('./blocklist.json', JSON.stringify(blocked, null, 4));
+        if (blocks.length > 0) {
+            await db.$transaction(blocks);
         }
     }, 1000);
 
-    setInterval(() => {
-        for (const [k, v] of Object.entries(nonExistent)) {
-            if (v < Date.now() / 1000) {
-                delete nonExistent[k];
-            }
-        }
-    }, 1000);
-
-    setInterval(() => {
-        let blockedAny = false;
+    setInterval(async () => {
+        const blocks = [];
 
         for (const [k, v] of Object.entries(badRequests)) {
             if (v.expires < Date.now() / 1000) {
@@ -66,18 +74,62 @@ if (config.autoBlock) {
                 continue;
             }
 
-            if (v.count > 50) {
-                blocked[k] = '[Automated] Made >100 bad requests within 10 minutes.';
-                blockedAny = true;
+            if (v.count > 100) {
+                blocks.push(
+                    db.bannedWebhook.upsert({
+                        where: {
+                            id: k
+                        },
+                        create: {
+                            id: k,
+                            reason: '[Automated] >100 bad requests within 10 minutes.'
+                        },
+                        update: {
+                            reason: '[Automated] >100 bad requests within 10 minutes.'
+                        }
+                    })
+                );
                 console.log('blocked', k, 'for >100 bad requests within 10 minutes');
                 delete badRequests[k];
             }
         }
 
-        if (blockedAny) {
-            fs.writeFileSync('./blocklist.json', JSON.stringify(blocked, null, 4));
+        if (blocks.length > 0) {
+            await db.$transaction(blocks);
         }
     }, 1000);
+}
+
+async function getWebhookBanInfo(id: string) {
+    if (webhookBansCache.has(id)) {
+        return webhookBansCache.get<BannedWebhook>(id);
+    }
+
+    const ban = await db.bannedWebhook.findUnique({
+        where: {
+            id
+        }
+    });
+
+    webhookBansCache.set(id, ban);
+
+    return ban;
+}
+
+async function getIPBanInfo(id: string) {
+    if (ipBansCache.has(id)) {
+        return ipBansCache.get<BannedIP>(id);
+    }
+
+    const ban = await db.bannedIP.findUnique({
+        where: {
+            id
+        }
+    });
+
+    ipBansCache.set(id, ban);
+
+    return ban;
 }
 
 app.set('trust proxy', config.trustProxy);
@@ -132,23 +184,38 @@ app.get('/', (req, res) => {
 });
 
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
+    const ipBan = await getIPBanInfo(req.ip);
+    if (ipBan) {
+        const expiry = Math.floor(ipBan.expires.getTime() / 1000);
+
+        if (expiry < Date.now() / 1000) {
+            await db.bannedIP.delete({
+                where: {
+                    id: ipBan.id
+                }
+            });
+            ipBansCache.del(ipBan.id);
+        } else {
+            return res.status(403).json({
+                proxy: true,
+                message: 'This IP address has been banned.',
+                reason: ipBan.reason,
+                expires: expiry
+            });
+        }
+    }
+
     const wait = req.query.wait ?? false;
     const threadId = req.query.thread_id;
 
     const body = req.body;
 
-    if (blocked[req.params.id]) {
+    const banInfo = await getWebhookBanInfo(req.params.id);
+    if (banInfo) {
         return res.status(403).json({
             proxy: true,
             message: 'This webhook has been blocked. Please contact @Lewis_Schumer on the DevForum.',
-            reason: blocked[req.params.id]
-        });
-    }
-
-    if (nonExistent[req.params.id]) {
-        return res.status(404).json({
-            proxy: true,
-            error: 'This webhook does not exist. Requests to this ID have been blocked temporarily.'
+            reason: banInfo.reason
         });
     }
 
@@ -188,16 +255,28 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     );
 
     if (response.status === 404) {
-        nonExistent[req.params.id] = Date.now() / 1000 + 600;
+        await db.bannedWebhook.upsert({
+            where: {
+                id: req.params.id
+            },
+            create: {
+                id: req.params.id,
+                reason: '[Automated] Webhook does not exist.'
+            },
+            update: {
+                reason: '[Automated] Webhook does not exist.'
+            }
+        });
         return res.status(404).json({
             proxy: true,
-            error: 'This webhook does not exist. Requests to this ID have been blocked temporarily.'
+            error: 'This webhook does not exist.'
         });
     }
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
         badRequests[req.params.id].count++;
+        console.log(`${req.params.id} made a bad request`);
     }
 
     if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
