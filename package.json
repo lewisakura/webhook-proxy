@@ -1,6 +1,6 @@
 {
     "scripts": {
-        "build": "rimraf dist && tsc",
+        "build": "rimraf dist && tsc && yarn prisma migrate deploy && yarn prisma generate",
         "start": "yarn build && node dist"
     },
     "dependencies": {
