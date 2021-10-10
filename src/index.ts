@@ -188,7 +188,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     );
 
     if (response.status === 404) {
-        nonExistent[req.params.id] = Date.now() / 1000 + 60;
+        nonExistent[req.params.id] = Date.now() / 1000 + 600;
         return res.status(404).json({
             proxy: true,
             error: 'This webhook does not exist. Requests to this ID have been blocked temporarily.'
