@@ -8,7 +8,12 @@ import { BannedIP, BannedWebhook, PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 
+import beforeShutdown from './beforeShutdown';
+
 const db = new PrismaClient();
+beforeShutdown(async () => {
+    await db.$disconnect();
+});
 
 const webhookBansCache = new Cache({ stdTTL: 60 * 60 * 24 });
 const ipBansCache = new Cache({ stdTTL: 60 * 60 * 24 });
