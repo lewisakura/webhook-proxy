@@ -1,5 +1,6 @@
 {
     "scripts": {
+        "update": "git pull && yarn build && pm2 restart webhook-proxy",
         "build": "rimraf dist && tsc && prisma migrate deploy && prisma generate",
         "start": "yarn build && node dist"
     },
