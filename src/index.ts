@@ -63,7 +63,8 @@ if (config.autoBlock) {
                         }
                     })
                 );
-                console.log('blocked', k, 'for >50 ratelimit violations within 1 minute');
+                webhookBansCache.del(k);
+                log('blocked', k, 'for >50 ratelimit violations within 1 minute');
                 delete violations[k];
             }
         }
@@ -97,7 +98,8 @@ if (config.autoBlock) {
                         }
                     })
                 );
-                console.log('blocked', k, 'for >100 bad requests within 10 minutes');
+                webhookBansCache.del(k);
+                log('blocked', k, 'for >100 bad requests within 10 minutes');
                 delete badRequests[k];
             }
         }
@@ -135,7 +137,8 @@ if (config.autoBlock) {
                         }
                     })
                 );
-                console.log('blocked', k, 'for >5 unique non-existent webhook requests within 1 hour');
+                ipBansCache.del(k);
+                log('blocked', k, 'for >5 unique non-existent webhook requests within 1 hour');
                 delete badRequests[k];
             }
         }
@@ -176,6 +179,11 @@ async function getIPBanInfo(id: string) {
     ipBansCache.set(id, ban);
 
     return ban;
+}
+
+// basic logger with timestamps
+function log(...args: any[]) {
+    console.log('\u001b[7m', new Date().toISOString(), '\u001b[0m', ...args);
 }
 
 app.set('trust proxy', config.trustProxy);
@@ -271,14 +279,19 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         if (ratelimit < Date.now() / 1000) {
             delete ratelimits[req.params.id];
         } else {
-            console.log(`${req.params.id} hit ratelimit`);
-
             res.setHeader('X-RateLimit-Limit', 5);
             res.setHeader('X-RateLimit-Remaining', 0);
             res.setHeader('X-RateLimit-Reset', ratelimit);
 
             violations[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 60 };
             violations[req.params.id].count++;
+
+            log(
+                req.params.id,
+                'hit ratelimit, this is their',
+                violations[req.params.id].count,
+                'time within the window'
+            );
 
             return res.status(429).json({
                 proxy: true,
@@ -314,8 +327,15 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             }
         });
 
-        badWebhooks[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 3600 };
-        badWebhooks[req.params.id].count++;
+        badWebhooks[req.ip] ??= { count: 0, expires: Date.now() / 1000 + 3600 };
+        badWebhooks[req.ip].count++;
+
+        log(
+            req.ip,
+            'made a request to a nonexistent webhook, this is their',
+            badWebhooks[req.ip].count,
+            'time within the window'
+        );
 
         return res.status(404).json({
             proxy: true,
@@ -326,7 +346,12 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
         badRequests[req.params.id].count++;
-        console.log(`${req.params.id} made a bad request`);
+        log(
+            req.params.id,
+            'made a bad request, this is their',
+            badRequests[req.params.id].count,
+            'time within the window'
+        );
     }
 
     if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
@@ -352,7 +377,7 @@ app.use(unknownEndpointRatelimit, (req, res, next) => {
 });
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error(err);
+    log('error encountered:', err);
 
     return res.status(500).json({
         proxy: true,
@@ -361,5 +386,5 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 });
 
 app.listen(config.port, () => {
-    console.log('Up and running.');
+    log('Up and running.');
 });
