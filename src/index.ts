@@ -22,6 +22,9 @@ const violations: { [id: string]: { count: number; expires: number } } = {};
 // [webhook id]: expiry
 const badRequests: { [id: string]: { count: number; expires: number } } = {};
 
+// [ip]: count
+const badWebhooks: { [ip: string]: { count: number; expires: number } } = {};
+
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
     port: number;
@@ -90,6 +93,44 @@ if (config.autoBlock) {
                     })
                 );
                 console.log('blocked', k, 'for >100 bad requests within 10 minutes');
+                delete badRequests[k];
+            }
+        }
+
+        if (blocks.length > 0) {
+            await db.$transaction(blocks);
+        }
+    }, 1000);
+
+    setInterval(async () => {
+        const blocks = [];
+
+        for (const [k, v] of Object.entries(badWebhooks)) {
+            if (v.expires < Date.now() / 1000) {
+                delete badWebhooks[k];
+                continue;
+            }
+
+            if (v.count > 5) {
+                const expiry = new Date();
+                expiry.setDate(expiry.getDate() + 3); // 3-day ban
+
+                blocks.push(
+                    db.bannedIP.upsert({
+                        where: {
+                            id: k
+                        },
+                        create: {
+                            id: k,
+                            reason: '[Automated] >5 unique non-existent webhook requests within 1 hour.',
+                            expires: expiry
+                        },
+                        update: {
+                            reason: '[Automated] >5 unique non-existent webhook requests within 1 hour.'
+                        }
+                    })
+                );
+                console.log('blocked', k, 'for >5 unique non-existent webhook requests within 1 hour');
                 delete badRequests[k];
             }
         }
@@ -267,6 +308,10 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
                 reason: '[Automated] Webhook does not exist.'
             }
         });
+
+        badWebhooks[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 3600 };
+        badWebhooks[req.params.id].count++;
+
         return res.status(404).json({
             proxy: true,
             error: 'This webhook does not exist.'
