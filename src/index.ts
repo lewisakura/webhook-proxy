@@ -387,7 +387,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 });
 
 app.use(unknownEndpointRatelimit, (req, res, next) => {
-    warn(req.ip, 'hit unknown endpoint', req.path);
+    warn(req.ip, 'hit unknown endpoint');
     return res.status(404).json({
         proxy: true,
         message: 'Unknown endpoint.'
