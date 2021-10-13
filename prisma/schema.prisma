@@ -22,3 +22,12 @@ model BannedIP {
   reason String
   expires DateTime
 }
+
+model WebhooksSeen {
+  id String @id
+}
+
+model Stats {
+  name String @id
+  value Int
+}

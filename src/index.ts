@@ -228,6 +228,13 @@ const unknownEndpointRatelimit = slowDown({
     maxDelayMs: 30000
 });
 
+const statsEndpointRatelimit = slowDown({
+    windowMs: 5000,
+    delayAfter: 1,
+    delayMs: 500,
+    maxDelayMs: 30000
+});
+
 const client = axios.create({
     validateStatus: () => true
 });
@@ -240,18 +247,45 @@ app.get('/logo.svg', (req, res) => {
     return res.sendFile(path.resolve('logo.svg'));
 });
 
-app.get('/stats', (req, res) => {
+app.get('/stats', statsEndpointRatelimit, async (req, res) => {
+    const stats = await db.stats.findUnique({
+        where: {
+            name: 'requests'
+        }
+    });
+
     return res.json({
-        requests: requestsServed,
-        webhooks: webhooksSeen.length
+        requests: stats.value,
+        webhooks: await db.webhooksSeen.count()
     });
 });
 
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
-    requestsServed++;
-    if (!webhooksSeen.includes(req.params.id)) {
-        webhooksSeen.push(req.params.id);
-    }
+    db.$transaction([
+        db.stats.upsert({
+            where: {
+                name: 'requests'
+            },
+            update: {
+                value: {
+                    increment: 1
+                }
+            },
+            create: {
+                name: 'requests',
+                value: 1
+            }
+        }),
+        db.webhooksSeen.upsert({
+            where: {
+                id: req.params.id
+            },
+            create: {
+                id: req.params.id
+            },
+            update: {}
+        })
+    ]).then(); // run this transaction so it doesn't block the async func
 
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {

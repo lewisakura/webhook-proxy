@@ -12,7 +12,9 @@
     <body>
         <div class="m-3 markdown-body">
             <div class="Subhead">
-                <div class="Subhead-heading">WebhookProxy <img src="/logo.svg" width="48" style="vertical-align: middle;"></div>
+                <div class="Subhead-heading">
+                    WebhookProxy <img src="/logo.svg" width="48" style="vertical-align: middle" />
+                </div>
                 <div class="Subhead-description">A Discord webhook proxy, primarily for Roblox games.</div>
             </div>
             <p>
@@ -20,8 +22,8 @@
                 when sending. That's it.
             </p>
             <p>
-                Proudly served <span id="webhooks">...</span> webhooks with a total of
-                <span id="requests">...</span> requests since the last restart.
+                Proudly served <span id="webhooks">...</span> unique webhooks and
+                <span id="requests">...</span> requests.
             </p>
             <div class="flash flash-warn mb-3">
                 <div class="octicon"><span class="iconify" data-icon="octicon:alert-24"></span></div>
@@ -94,8 +96,8 @@
         <script>
             async function getStats() {
                 const stats = await fetch('/stats').then(res => res.json());
-                document.getElementById('webhooks').innerText = stats.webhooks;
-                document.getElementById('requests').innerText = stats.requests;
+                document.getElementById('webhooks').innerText = stats.webhooks.toLocaleString();
+                document.getElementById('requests').innerText = stats.requests.toLocaleString();
             }
 
             getStats();
