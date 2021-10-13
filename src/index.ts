@@ -31,9 +31,6 @@ const badRequests: { [id: string]: { count: number; expires: number } } = {};
 // [ip]: count
 const badWebhooks: { [ip: string]: { count: number; expires: number } } = {};
 
-const webhooksSeen: string[] = [];
-let requestsServed = 0;
-
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
     port: number;
