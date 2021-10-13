@@ -83,7 +83,7 @@ if (config.autoBlock) {
                 continue;
             }
 
-            if (v.count > 100) {
+            if (v.count > 50) {
                 blocks.push(
                     db.bannedWebhook.upsert({
                         where: {
@@ -91,15 +91,15 @@ if (config.autoBlock) {
                         },
                         create: {
                             id: k,
-                            reason: '[Automated] >100 bad requests within 10 minutes.'
+                            reason: '[Automated] >50 bad requests within 10 minutes.'
                         },
                         update: {
-                            reason: '[Automated] >100 bad requests within 10 minutes.'
+                            reason: '[Automated] >50 bad requests within 10 minutes.'
                         }
                     })
                 );
                 webhookBansCache.del(k);
-                log('blocked', k, 'for >100 bad requests within 10 minutes');
+                log('blocked', k, 'for >50 bad requests within 10 minutes');
                 delete badRequests[k];
             }
         }
