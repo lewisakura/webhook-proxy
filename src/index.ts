@@ -236,6 +236,10 @@ app.get('/', (req, res) => {
     return res.sendFile(path.resolve('index.html'));
 });
 
+app.get('/logo.svg', (req, res) => {
+    return res.sendFile(path.resolve('logo.svg'));
+});
+
 app.get('/stats', (req, res) => {
     return res.json({
         requests: requestsServed,
