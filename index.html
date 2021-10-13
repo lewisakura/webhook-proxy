@@ -18,6 +18,10 @@
                 Simply replace <code>discord.com</code> with <code>webhook.lewistehminerz.dev</code> in your webhook URL
                 when sending. That's it.
             </p>
+            <p>
+                Proudly served <span id="webhooks">...</span> webhooks with a total of
+                <span id="requests">...</span> requests since the last restart.
+            </p>
             <div class="flash flash-warn mb-3">
                 <div class="octicon"><span class="iconify" data-icon="octicon:alert-24"></span></div>
                 Please respect Discord ratelimits. If you do not respect ratelimits, your webhooks will be slowed down
@@ -85,5 +89,16 @@
                 }
             }
         </style>
+
+        <script>
+            async function getStats() {
+                const stats = await fetch('/stats').then(res => res.json());
+                document.getElementById('webhooks').innerText = stats.webhooks;
+                document.getElementById('requests').innerText = stats.requests;
+            }
+
+            getStats();
+            setInterval(getStats, 5000);
+        </script>
     </body>
 </html>

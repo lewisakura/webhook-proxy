@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 
 import beforeShutdown from './beforeShutdown';
+import { log, warn } from './log';
 
 const db = new PrismaClient();
 beforeShutdown(async () => {
@@ -29,6 +30,9 @@ const badRequests: { [id: string]: { count: number; expires: number } } = {};
 
 // [ip]: count
 const badWebhooks: { [ip: string]: { count: number; expires: number } } = {};
+
+const webhooksSeen: string[] = [];
+let requestsServed = 0;
 
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
@@ -64,7 +68,7 @@ if (config.autoBlock) {
                     })
                 );
                 webhookBansCache.del(k);
-                log('blocked', k, 'for >50 ratelimit violations within 1 minute');
+                warn('blocked', k, 'for >50 ratelimit violations within 1 minute');
                 delete violations[k];
             }
         }
@@ -99,7 +103,7 @@ if (config.autoBlock) {
                     })
                 );
                 webhookBansCache.del(k);
-                log('blocked', k, 'for >50 bad requests within 10 minutes');
+                warn('blocked', k, 'for >50 bad requests within 10 minutes');
                 delete badRequests[k];
             }
         }
@@ -138,7 +142,7 @@ if (config.autoBlock) {
                     })
                 );
                 ipBansCache.del(k);
-                log('blocked', k, 'for >5 unique non-existent webhook requests within 1 hour');
+                warn('blocked', k, 'for >5 unique non-existent webhook requests within 1 hour');
                 delete badRequests[k];
             }
         }
@@ -179,11 +183,6 @@ async function getIPBanInfo(id: string) {
     ipBansCache.set(id, ban);
 
     return ban;
-}
-
-// basic logger with timestamps
-function log(...args: any[]) {
-    console.log('\u001b[7m', new Date().toISOString(), '\u001b[0m', ...args);
 }
 
 app.set('trust proxy', config.trustProxy);
@@ -237,7 +236,19 @@ app.get('/', (req, res) => {
     return res.sendFile(path.resolve('index.html'));
 });
 
+app.get('/stats', (req, res) => {
+    return res.json({
+        requests: requestsServed,
+        webhooks: webhooksSeen.length
+    });
+});
+
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
+    requestsServed++;
+    if (!webhooksSeen.includes(req.params.id)) {
+        webhooksSeen.push(req.params.id);
+    }
+
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
         const expiry = Math.floor(ipBan.expires.getTime() / 1000);
@@ -250,6 +261,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             });
             ipBansCache.del(ipBan.id);
         } else {
+            warn('ip', req.ip, 'attempted to request to', req.params.id, 'whilst banned');
             return res.status(403).json({
                 proxy: true,
                 message: 'This IP address has been banned.',
@@ -266,6 +278,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
     const banInfo = await getWebhookBanInfo(req.params.id);
     if (banInfo) {
+        warn(req.params.id, 'attempted to request whilst blocked for', banInfo.reason);
         return res.status(403).json({
             proxy: true,
             message: 'This webhook has been blocked. Please contact @Lewis_Schumer on the DevForum.',
@@ -286,11 +299,11 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             violations[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 60 };
             violations[req.params.id].count++;
 
-            log(
+            warn(
                 req.params.id,
-                'hit ratelimit, this is their',
+                'hit ratelimit, they have done so',
                 violations[req.params.id].count,
-                'time within the window'
+                'times within the window'
             );
 
             return res.status(429).json({
@@ -330,11 +343,11 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         badWebhooks[req.ip] ??= { count: 0, expires: Date.now() / 1000 + 3600 };
         badWebhooks[req.ip].count++;
 
-        log(
+        warn(
             req.ip,
-            'made a request to a nonexistent webhook, this is their',
+            'made a request to a nonexistent webhook, they have made',
             badWebhooks[req.ip].count,
-            'time within the window'
+            'within the window'
         );
 
         return res.status(404).json({
@@ -346,11 +359,11 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
         badRequests[req.params.id].count++;
-        log(
+        warn(
             req.params.id,
-            'made a bad request, this is their',
+            'made a bad request, they have made',
             badRequests[req.params.id].count,
-            'time within the window'
+            'within the window'
         );
     }
 

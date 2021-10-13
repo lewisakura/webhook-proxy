@@ -1,5 +1,6 @@
 // https://gist.github.com/nfantone/1eaa803772025df69d07f4dbf5df7e58
 
+import { log, warn } from './log';
 type BeforeShutdownListener = (signalOrEvent: string) => any;
 
 /**
@@ -37,7 +38,7 @@ const processOnce = (signals: string[], fn: (arg0: string) => any) => {
 const forceExitAfter = (timeout: number) => () => {
     setTimeout(() => {
         // Force shutdown after timeout
-        console.warn(`Could not close resources gracefully after ${timeout}ms: forcing shutdown`);
+        warn(`Could not close resources gracefully after ${timeout}ms: forcing shutdown`);
         return process.exit(1);
     }, timeout).unref();
 };
@@ -49,13 +50,13 @@ const forceExitAfter = (timeout: number) => () => {
  * @param {string} signalOrEvent The exit signal or event name received on the process.
  */
 async function shutdownHandler(signalOrEvent: string) {
-    console.warn(`Shutting down: received [${signalOrEvent}] signal`);
+    log(`Shutting down: received [${signalOrEvent}] signal`);
 
     for (const listener of shutdownListeners) {
         try {
             await listener(signalOrEvent);
         } catch (err) {
-            console.warn(`A shutdown handler failed before completing with: ${err.message || err}`);
+            warn(`A shutdown handler failed before completing with: ${err.message || err}`);
         }
     }
 
