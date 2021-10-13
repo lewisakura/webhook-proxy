@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 
 import beforeShutdown from './beforeShutdown';
-import { log, warn } from './log';
+import { error, log, warn } from './log';
 
 const db = new PrismaClient();
 beforeShutdown(async () => {
@@ -383,6 +383,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 });
 
 app.use(unknownEndpointRatelimit, (req, res, next) => {
+    warn(req.ip, 'hit unknown endpoint', req.path);
     return res.status(404).json({
         proxy: true,
         message: 'Unknown endpoint.'
@@ -390,7 +391,7 @@ app.use(unknownEndpointRatelimit, (req, res, next) => {
 });
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    log('error encountered:', err);
+    error('error encountered:', err);
 
     return res.status(500).json({
         proxy: true,
