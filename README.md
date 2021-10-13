@@ -1,6 +1,6 @@
 <img src="/logo.svg" width="128" align="right">
 
-# Webhook Proxy
+# WebhookProxy
 A Discord webhook proxy, primarily for Roblox games.
 
 # Why?
