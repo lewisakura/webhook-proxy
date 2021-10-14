@@ -5,21 +5,26 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>WebhookProxy</title>
 
+        <meta property="og:title" content="WebhookProxy" />
+        <meta property="og:url" content="https://webhook.lewistehminerz.dev/" />
+        <meta property="og:description" content="A Discord webhook proxy, primarily for Roblox games." />
+        <meta property="og:image" content="https://webhook.lewistehminerz.dev/img/logo.png" />
+
         <link href="https://unpkg.com/@primer/css@^16.0.0/dist/primer.css" rel="stylesheet" />
-        <link href="/logo.svg" rel="icon" />
+        <link href="/img/logo.svg" rel="icon" />
         <script src="https://code.iconify.design/2/2.0.3/iconify.min.js"></script>
     </head>
     <body>
         <div class="m-3 markdown-body">
             <div class="Subhead">
                 <div class="Subhead-heading">
-                    WebhookProxy <img src="/logo.svg" width="48" style="vertical-align: middle" />
+                    WebhookProxy <img src="/img/logo.svg" width="48" style="vertical-align: middle" />
                 </div>
                 <div class="Subhead-description">A Discord webhook proxy, primarily for Roblox games.</div>
             </div>
             <p>
-                Simply replace <code>discord.com</code> with <code>webhook.lewistehminerz.dev</code> in your webhook URL
-                when sending. That's it.
+                Simply replace <code>discord.com</code> with <code id="hostname">...</code> in your webhook URL when
+                sending. That's it.
             </p>
             <p>
                 Proudly served <span id="webhooks">...</span> unique webhooks and
@@ -94,6 +99,8 @@
         </style>
 
         <script>
+            document.getElementById('hostname').innerText = window.location.host;
+
             async function getStats() {
                 const stats = await fetch('/stats').then(res => res.json());
                 document.getElementById('webhooks').innerText = stats.webhooks.toLocaleString();

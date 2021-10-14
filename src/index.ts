@@ -31,6 +31,13 @@ const badRequests: { [id: string]: { count: number; expires: number } } = {};
 // [ip]: count
 const badWebhooks: { [ip: string]: { count: number; expires: number } } = {};
 
+// [webhook id]: items[]
+const webhookQueues: { [id: string]: { body: any; threadId: string }[] } = {};
+
+// this object exists for webhooks that take advantage of the queue system. i don't use these tokens for anything else.
+// [webhook id]: token
+const webhookTokens: { [id: string]: string } = {};
+
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
     port: number;
@@ -150,6 +157,32 @@ if (config.autoBlock) {
     }, 1000);
 }
 
+// queue processor
+setInterval(async () => {
+    for (const [id, queue] of Object.entries(webhookQueues)) {
+        if (queue.length === 0) continue;
+
+        const ratelimit = ratelimits[id];
+        if (ratelimit && ratelimit > Date.now() / 1000) continue; // do it on the next queue iteration
+
+        for (const item of queue) {
+            // send through self, processes ratelimits and stuff!
+            await axios.post(
+                `http://localhost:${config.port}/api/webhooks/${id}/${webhookTokens[id]}?wait=false${
+                    item.threadId ? '&thread_id=' + item.threadId : ''
+                }`,
+                item.body,
+                {
+                    headers: {
+                        'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+        }
+    }
+}, 1000);
+
 async function getWebhookBanInfo(id: string) {
     if (webhookBansCache.has(id)) {
         return webhookBansCache.get<BannedWebhook>(id);
@@ -203,6 +236,17 @@ const webhookPostRatelimit = slowDown({
     }
 });
 
+const webhookQueuePostRatelimit = slowDown({
+    windowMs: 1000,
+    delayAfter: 10,
+    delayMs: 1000,
+    maxDelayMs: 30000,
+
+    keyGenerator(req, res) {
+        return req.params.id ?? req.ip; // use the webhook ID as a ratelimiting key, otherwise use IP
+    }
+});
+
 const webhookInvalidPostRatelimit = slowDown({
     windowMs: 30000,
     delayAfter: 3,
@@ -236,13 +280,7 @@ const client = axios.create({
     validateStatus: () => true
 });
 
-app.get('/', (req, res) => {
-    return res.sendFile(path.resolve('index.html'));
-});
-
-app.get('/logo.svg', (req, res) => {
-    return res.sendFile(path.resolve('logo.svg'));
-});
+app.use(Express.static('public'));
 
 app.get('/stats', statsEndpointRatelimit, async (req, res) => {
     const stats = await db.stats.findUnique({
@@ -252,7 +290,7 @@ app.get('/stats', statsEndpointRatelimit, async (req, res) => {
     });
 
     return res.json({
-        requests: stats.value,
+        requests: stats?.value ?? 0,
         webhooks: await db.webhooksSeen.count()
     });
 });
@@ -415,6 +453,59 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     res.setHeader('Via', '1.0 WebhookProxy');
 
     return res.status(response.status).json(response.data);
+});
+
+app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req, res) => {
+    // run the same ban checks again so we don't hit ourselves if the webhook is bad
+
+    const ipBan = await getIPBanInfo(req.ip);
+    if (ipBan) {
+        const expiry = Math.floor(ipBan.expires.getTime() / 1000);
+
+        if (expiry < Date.now() / 1000) {
+            await db.bannedIP.delete({
+                where: {
+                    id: ipBan.id
+                }
+            });
+            ipBansCache.del(ipBan.id);
+        } else {
+            warn('ip', req.ip, 'attempted to queue to', req.params.id, 'whilst banned');
+            return res.status(403).json({
+                proxy: true,
+                message: 'This IP address has been banned.',
+                reason: ipBan.reason,
+                expires: expiry
+            });
+        }
+    }
+
+    const threadId = req.query.thread_id;
+
+    const body = req.body;
+
+    const banInfo = await getWebhookBanInfo(req.params.id);
+    if (banInfo) {
+        warn(req.params.id, 'attempted to queue whilst blocked for', banInfo.reason);
+        return res.status(403).json({
+            proxy: true,
+            message: 'This webhook has been blocked. Please contact @Lewis_Schumer on the DevForum.',
+            reason: banInfo.reason
+        });
+    }
+
+    webhookTokens[req.params.id] ??= req.params.token;
+
+    webhookQueues[req.params.id] ??= [];
+    webhookQueues[req.params.id].push({
+        body,
+        threadId: threadId as string
+    });
+
+    return res.json({
+        proxy: true,
+        message: 'Queued successfully.'
+    });
 });
 
 app.use(unknownEndpointRatelimit, (req, res, next) => {
