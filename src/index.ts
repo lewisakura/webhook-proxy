@@ -296,31 +296,20 @@ app.get('/stats', statsEndpointRatelimit, async (req, res) => {
 });
 
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
-    db.$transaction([
-        db.stats.upsert({
-            where: {
-                name: 'requests'
-            },
-            update: {
-                value: {
-                    increment: 1
-                }
-            },
-            create: {
-                name: 'requests',
-                value: 1
+    db.stats.upsert({
+        where: {
+            name: 'requests'
+        },
+        update: {
+            value: {
+                increment: 1
             }
-        }),
-        db.webhooksSeen.upsert({
-            where: {
-                id: req.params.id
-            },
-            create: {
-                id: req.params.id
-            },
-            update: {}
-        })
-    ]).then(); // run this transaction so it doesn't block the async func
+        },
+        create: {
+            name: 'requests',
+            value: 1
+        }
+    }).then();
 
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
@@ -428,6 +417,16 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             error: 'This webhook does not exist.'
         });
     }
+    
+    db.webhooksSeen.upsert({
+        where: {
+            id: req.params.id
+        },
+        create: {
+            id: req.params.id
+        },
+        update: {}
+    }).then();
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
