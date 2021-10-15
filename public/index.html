@@ -16,6 +16,7 @@
         <link href="https://unpkg.com/@primer/css@^16.0.0/dist/primer.css" rel="stylesheet" />
         <link href="/img/logo.svg" rel="icon" />
         <script src="https://code.iconify.design/2/2.0.3/iconify.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/countup.js/2.0.8/countUp.umd.min.js"></script>
     </head>
     <body>
         <div class="m-3 markdown-body">
@@ -30,8 +31,8 @@
                 sending. That's it.
             </p>
             <p>
-                Proudly served <span id="webhooks">...</span> unique webhooks and
-                <span id="requests">...</span> requests.
+                Proudly served <span id="webhooks">0</span> unique webhooks and <span id="requests">0</span>
+                requests.
             </p>
             <div class="flash flash-warn mb-3">
                 <div class="octicon"><span class="iconify" data-icon="octicon:alert-24"></span></div>
@@ -104,10 +105,15 @@
         <script>
             document.getElementById('hostname').innerText = window.location.host;
 
+            const CountUp = countUp.CountUp;
+            
+            const webhooks = new CountUp('webhooks');
+            const requests = new CountUp('requests');
+            
             async function getStats() {
                 const stats = await fetch('/stats').then(res => res.json());
-                document.getElementById('webhooks').innerText = stats.webhooks.toLocaleString();
-                document.getElementById('requests').innerText = stats.requests.toLocaleString();
+                webhooks.update(stats.webhooks);
+                requests.update(stats.requests);
             }
 
             getStats();
