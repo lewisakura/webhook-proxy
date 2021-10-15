@@ -296,20 +296,23 @@ app.get('/stats', statsEndpointRatelimit, async (req, res) => {
 });
 
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
-    db.stats.upsert({
-        where: {
-            name: 'requests'
-        },
-        update: {
-            value: {
-                increment: 1
+    db.stats
+        .upsert({
+            where: {
+                name: 'requests'
+            },
+            update: {
+                value: {
+                    increment: 1
+                }
+            },
+            create: {
+                name: 'requests',
+                value: 1
             }
-        },
-        create: {
-            name: 'requests',
-            value: 1
-        }
-    }).then();
+        })
+        .then()
+        .catch(e => warn('failed to update stats', e));
 
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
@@ -417,16 +420,18 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             error: 'This webhook does not exist.'
         });
     }
-    
-    db.webhooksSeen.upsert({
-        where: {
-            id: req.params.id
-        },
-        create: {
-            id: req.params.id
-        },
-        update: {}
-    }).then();
+
+    db.webhooksSeen
+        .upsert({
+            where: {
+                id: req.params.id
+            },
+            create: {
+                id: req.params.id
+            },
+            update: {}
+        })
+        .then();
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
@@ -456,7 +461,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
 app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req, res) => {
     return res.status(501).json({ proxy: true, error: 'Not implemented' });
-    
+
     // run the same ban checks again so we don't hit ourselves if the webhook is bad
 
     const ipBan = await getIPBanInfo(req.ip);
