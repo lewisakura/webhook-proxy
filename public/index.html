@@ -13,29 +13,31 @@
 
         <meta name="theme-color" content="#5865f2" />
 
-        <link href="https://unpkg.com/@primer/css@^16.0.0/dist/primer.css" rel="stylesheet" />
+        <link href="/css/bootstrap.min.css" rel="stylesheet" />
+        <link href="/css/bootstrap-extras.css" rel="stylesheet" />
+        <link href="/css/fontawesome.min.css" rel="stylesheet" />
         <link href="/img/logo.svg" rel="icon" />
         <script src="https://code.iconify.design/2/2.0.3/iconify.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/countup.js/2.0.8/countUp.umd.min.js"></script>
     </head>
     <body>
-        <div class="m-3 markdown-body">
-            <div class="Subhead">
-                <div class="Subhead-heading">
-                    WebhookProxy <img src="/img/logo.svg" width="48" style="vertical-align: middle" />
-                </div>
-                <div class="Subhead-description">A Discord webhook proxy, primarily for Roblox games.</div>
+        <div class="px-4 py-5 my-5 text-center">
+            <img class="d-block mx-auto mb-4" src="/img/logo.svg" width="256" />
+            <h1 class="display-5 fw-bold">WebhookProxy</h1>
+            <div class="col-lg-6 mx-auto">
+                <p class="lead mb-4">A Discord webhook proxy, primarily for Roblox games.</p>
             </div>
-            <p>
-                Simply replace <code>discord.com</code> with <code id="hostname">...</code> in your webhook URL when
-                sending. That's it.
-            </p>
-            <p>
-                Proudly served <span id="webhooks">0</span> unique webhooks and <span id="requests">0</span>
-                requests.
-            </p>
-            <div class="flash flash-warn mb-3">
-                <div class="octicon"><span class="iconify" data-icon="octicon:alert-24"></span></div>
+            <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+                <a
+                    href="https://devforum.roblox.com/t/discord-webhook-proxy/1491725"
+                    class="btn btn-secondary btn-lg px-4"
+                    >DevForum <i class="fas fa-external-link-alt"></i
+                ></a>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="alert alert-warning">
                 Please respect Discord ratelimits. If you do not respect ratelimits, your webhooks will be slowed down
                 (which can cause long yield times) or blocked completely. This is 5 requests per 2 seconds.
                 <br /><br />
@@ -45,11 +47,53 @@
                 Invalid data (e.g., Discord would return status code 400 if you sent it) will trigger a harsher
                 ratelimit. Validate your data before sending.
             </div>
+        </div>
+
+        <main class="container">
+            <h2>Why use WebhookProxy?</h2>
+            <div class="row g-4 py-5 row-cols-1 row-cols-lg-3">
+                <div class="feature col">
+                    <div class="feature-icon bg-primary bg-gradient">
+                        <i class="fas fa-wrench"></i>
+                    </div>
+                    <h3>Easy to Integrate</h3>
+                    <p>
+                        Simply replace <code>discord.com</code> with <code id="hostname">...</code> in your webhook URL
+                        when sending. That's it.
+                    </p>
+                </div>
+                <div class="feature col">
+                    <div class="feature-icon bg-primary bg-gradient">
+                        <i class="fas fa-vial"></i>
+                    </div>
+                    <h3>Tried and Tested</h3>
+                    <p>
+                        Proudly served <span id="webhooks">0</span> unique webhooks and <span id="requests">0</span>
+                        requests.
+                    </p>
+                </div>
+                <div class="feature col">
+                    <div class="feature-icon bg-primary bg-gradient">
+                        <i class="fas fa-signal"></i>
+                    </div>
+                    <h3>Kept Up</h3>
+                    <p>
+                        The proxy will be kept online, even if Discord brings webhooks back for Roblox. We aren't going
+                        to break all of your code on a whim. If it's offline, berate me on the DevForum!
+                    </p>
+                </div>
+            </div>
             <p>
                 This proxy only works with <code>POST /api/webhook/:id/:token</code>. There are no other routes
                 implemented.
             </p>
-        </div>
+        </main>
+
+        <footer class="footer">
+            <div class="container">
+                <span class="text-muted">A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>.</span>
+            </div>
+        </footer>
 
         <a
             href="https://github.com/lewistehminerz/webhook-proxy"
@@ -106,10 +150,10 @@
             document.getElementById('hostname').innerText = window.location.host;
 
             const CountUp = countUp.CountUp;
-            
+
             const webhooks = new CountUp('webhooks');
             const requests = new CountUp('requests');
-            
+
             async function getStats() {
                 const stats = await fetch('/stats').then(res => res.json());
                 webhooks.update(stats.webhooks);
