@@ -36,19 +36,6 @@
             </div>
         </div>
 
-        <div class="container">
-            <div class="alert alert-warning">
-                Please respect Discord ratelimits. If you do not respect ratelimits, your webhooks will be slowed down
-                (which can cause long yield times) or blocked completely. This is 5 requests per 2 seconds.
-                <br /><br />
-                Whilst ratelimits are enforced by the proxy itself (so it won't spam Discord), it is not an excuse to
-                start spamming the proxy. Respect ratelimits in your code.
-                <br /><br />
-                Invalid data (e.g., Discord would return status code 400 if you sent it) will trigger a harsher
-                ratelimit. Validate your data before sending.
-            </div>
-        </div>
-
         <main class="container">
             <h2>Why use WebhookProxy?</h2>
             <div class="row g-4 py-5 row-cols-1 row-cols-lg-3">
@@ -88,6 +75,19 @@
                 implemented.
             </p>
         </main>
+
+        <div class="container">
+            <div class="alert alert-warning">
+                Please respect Discord ratelimits. If you do not respect ratelimits, your webhooks will be slowed down
+                (which can cause long yield times) or blocked completely. This is 5 requests per 2 seconds.
+                <br /><br />
+                Whilst ratelimits are enforced by the proxy itself (so it won't spam Discord), it is not an excuse to
+                start spamming the proxy. Respect ratelimits in your code.
+                <br /><br />
+                Invalid data (e.g., Discord would return status code 400 if you sent it) will trigger a harsher
+                ratelimit. Validate your data before sending.
+            </div>
+        </div>
 
         <footer class="footer">
             <div class="container">
