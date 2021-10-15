@@ -70,30 +70,32 @@
                     </p>
                 </div>
             </div>
+
+            <div class="container">
+                <div class="alert alert-warning">
+                    <p>
+                        Please respect Discord ratelimits. If you do not respect ratelimits, your webhooks will be
+                        slowed down (which can cause long yield times) or blocked completely. This is 5 requests per 2
+                        seconds.
+                    </p>
+
+                    <p>
+                        Whilst ratelimits are enforced by the proxy itself (so it won't spam Discord), it is not an
+                        excuse to start spamming the proxy. Respect ratelimits in your code.
+                    </p>
+
+                    <p>
+                        Invalid data (e.g., Discord would return status code 400 if you sent it) will trigger a harsher
+                        ratelimit. Validate your data before sending.
+                    </p>
+                </div>
+            </div>
+
             <p>
                 This proxy only works with <code>POST /api/webhook/:id/:token</code>. There are no other routes
                 implemented.
             </p>
         </main>
-
-        <div class="container">
-            <div class="alert alert-warning">
-                <p>
-                    Please respect Discord ratelimits. If you do not respect ratelimits, your webhooks will be slowed
-                    down (which can cause long yield times) or blocked completely. This is 5 requests per 2 seconds.
-                </p>
-
-                <p>
-                    Whilst ratelimits are enforced by the proxy itself (so it won't spam Discord), it is not an excuse
-                    to start spamming the proxy. Respect ratelimits in your code.
-                </p>
-
-                <p>
-                    Invalid data (e.g., Discord would return status code 400 if you sent it) will trigger a harsher
-                    ratelimit. Validate your data before sending.
-                </p>
-            </div>
-        </div>
 
         <footer class="footer">
             <div class="container">
