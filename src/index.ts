@@ -456,6 +456,8 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 });
 
 app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req, res) => {
+    return res.status(501).json({ proxy: true, error: 'Not implemented' });
+    
     // run the same ban checks again so we don't hit ourselves if the webhook is bad
 
     const ipBan = await getIPBanInfo(req.ip);
