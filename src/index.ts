@@ -11,6 +11,8 @@ import path from 'path';
 import beforeShutdown from './beforeShutdown';
 import { error, log, warn } from './log';
 
+import 'express-async-errors';
+
 const db = new PrismaClient();
 beforeShutdown(async () => {
     await db.$disconnect();
