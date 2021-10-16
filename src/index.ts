@@ -4,6 +4,7 @@ import Express, { NextFunction, Request, Response } from 'express';
 import slowDown from 'express-slow-down';
 import Cache from 'node-cache';
 import { BannedIP, BannedWebhook, PrismaClient } from '@prisma/client';
+import amqp from 'amqplib';
 
 import fs from 'fs';
 import path from 'path';
@@ -12,6 +13,7 @@ import beforeShutdown from './beforeShutdown';
 import { error, log, warn } from './log';
 
 import 'express-async-errors';
+import { setup } from './rmq';
 
 const db = new PrismaClient();
 beforeShutdown(async () => {
@@ -33,19 +35,19 @@ const badRequests: { [id: string]: { count: number; expires: number } } = {};
 // [ip]: count
 const badWebhooks: { [ip: string]: { count: number; expires: number } } = {};
 
-// [webhook id]: items[]
-const webhookQueues: { [id: string]: { body: any; threadId: string }[] } = {};
-
-// this object exists for webhooks that take advantage of the queue system. i don't use these tokens for anything else.
-// [webhook id]: token
-const webhookTokens: { [id: string]: string } = {};
-
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
     port: number;
     trustProxy: boolean;
     autoBlock: boolean;
+    queue: {
+        enabled: boolean;
+        rabbitmq: string;
+        queue: string;
+    };
 };
+
+let rabbitMq: amqp.Channel;
 
 if (config.autoBlock) {
     setInterval(async () => {
@@ -158,32 +160,6 @@ if (config.autoBlock) {
         }
     }, 1000);
 }
-
-// queue processor
-setInterval(async () => {
-    for (const [id, queue] of Object.entries(webhookQueues)) {
-        if (queue.length === 0) continue;
-
-        const ratelimit = ratelimits[id];
-        if (ratelimit && ratelimit > Date.now() / 1000) continue; // do it on the next queue iteration
-
-        for (const item of queue) {
-            // send through self, processes ratelimits and stuff!
-            await axios.post(
-                `http://localhost:${config.port}/api/webhooks/${id}/${webhookTokens[id]}?wait=false${
-                    item.threadId ? '&thread_id=' + item.threadId : ''
-                }`,
-                item.body,
-                {
-                    headers: {
-                        'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
-                        'Content-Type': 'application/json'
-                    }
-                }
-            );
-        }
-    }
-}, 1000);
 
 async function getWebhookBanInfo(id: string) {
     if (webhookBansCache.has(id)) {
@@ -462,7 +438,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 });
 
 app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req, res) => {
-    return res.status(501).json({ proxy: true, error: 'Not implemented' });
+    if (!config.queue.enabled) return res.status(403).json({ proxy: true, error: 'Queues have been disabled.' });
 
     // run the same ban checks again so we don't hit ourselves if the webhook is bad
 
@@ -502,13 +478,20 @@ app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req
         });
     }
 
-    webhookTokens[req.params.id] ??= req.params.token;
-
-    webhookQueues[req.params.id] ??= [];
-    webhookQueues[req.params.id].push({
-        body,
-        threadId: threadId as string
-    });
+    rabbitMq.sendToQueue(
+        config.queue.queue,
+        Buffer.from(
+            JSON.stringify({
+                id: req.params.id,
+                token: req.params.token,
+                body,
+                threadId: threadId as string
+            })
+        ),
+        {
+            persistent: true // make messages persistent to minimise lost messages
+        }
+    );
 
     return res.json({
         proxy: true,
@@ -533,6 +516,21 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     });
 });
 
-app.listen(config.port, () => {
+app.listen(config.port, async () => {
     log('Up and running.');
+
+    if (config.queue.enabled) {
+        try {
+            rabbitMq = await setup(config.queue.rabbitmq, config.queue.queue);
+
+            beforeShutdown(async () => {
+                await rabbitMq.close();
+            });
+
+            log('RabbitMQ set up.');
+        } catch (e) {
+            error('RabbitMQ init error, will disable queues:', e);
+            config.queue.enabled = false;
+        }
+    }
 });

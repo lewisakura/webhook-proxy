@@ -1,5 +1,10 @@
 {
     "port": 8080,
     "trustProxy": false,
-    "autoBlock": false
+    "autoBlock": false,
+    "queue": {
+        "enabled": false,
+        "rabbitmq": "amqp://localhost",
+        "queue": "webhook-proxy"
+    }
 }
