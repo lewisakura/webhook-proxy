@@ -79,7 +79,7 @@ async function run() {
 
                 rabbitMq.ack(msg);
             },
-            { noAck: true }
+            { noAck: false }
         );
     }
 }
