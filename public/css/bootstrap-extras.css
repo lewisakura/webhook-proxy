@@ -1,3 +1,7 @@
+:root {
+    --bs-body-bg: #23272a;
+}
+
 .feature-icon {
     display: inline-flex;
     align-items: center;
@@ -16,8 +20,6 @@
 }
 
 .footer {
-    position: absolute;
-    bottom: 0;
     width: 100%;
     height: 60px;
     line-height: 60px;
