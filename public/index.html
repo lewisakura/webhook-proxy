@@ -16,13 +16,33 @@
         <link href="/css/bootstrap.min.css" rel="stylesheet" />
         <link href="/css/bootstrap-extras.css" rel="stylesheet" />
         <link href="/css/fontawesome.min.css" rel="stylesheet" />
+        <link href="/css/prism.css" rel="stylesheet" />
+
+        <noscript>
+            <style>
+                withscript {
+                    display: none;
+                }
+            </style>
+        </noscript>
 
         <link href="/img/logo.svg" rel="icon" />
 
-        <script src="https://code.iconify.design/2/2.0.3/iconify.min.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/countup.js/2.0.8/countUp.umd.min.js"></script>
+        <script src="/js/bootstrap.bundle.min.js"></script>
+        <script src="/js/iconify.min.js"></script>
+        <script src="/js/countUp.umd.min.js"></script>
+        <script src="/js/prism.js"></script>
     </head>
     <body>
+        <div class="container my-3" id="httpWarning" style="display: none">
+            <div class="alert alert-warning">
+                <h5 class="alert-heading">Security Warning</h5>
+                <p class="mb-0">
+                    You are currently accessing the proxy over HTTP. This is a very bad idea, especially if you're doing
+                    this in your code. Please use HTTPS instead.
+                </p>
+            </div>
+        </div>
         <div class="px-4 py-5 my-5 text-center">
             <img class="d-block mx-auto mb-4" src="/img/logo.svg" width="256" />
             <h1 class="display-5 fw-bold">WebhookProxy</h1>
@@ -30,6 +50,16 @@
                 <p class="lead mb-4">A Discord webhook proxy, primarily for Roblox games.</p>
             </div>
             <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+                <withscript>
+                    <button
+                        type="button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#getStarted"
+                        class="btn btn-primary btn-lg px-4"
+                    >
+                        Get started!
+                    </button>
+                </withscript>
                 <a
                     href="https://devforum.roblox.com/t/discord-webhook-proxy/1491725"
                     class="btn btn-secondary btn-lg px-4"
@@ -42,27 +72,28 @@
             <h2>Why use WebhookProxy?</h2>
             <div class="row g-4 py-5 pb-1 row-cols-1 row-cols-lg-3">
                 <div class="feature col">
-                    <div class="feature-icon bg-blurple">
+                    <div class="feature-icon bg-primary">
                         <i class="fas fa-wrench"></i>
                     </div>
                     <h3>Easy to Integrate</h3>
                     <p>
-                        Simply replace <code>discord.com</code> with <code id="hostname">...</code> in your webhook URL
-                        when sending. That's it.
+                        Simply replace <code>discord.com</code> with
+                        <code class="hostname">webhook.lewistehminerz.dev</code> in your webhook URL when sending.
+                        That's it.
                     </p>
                 </div>
                 <div class="feature col">
-                    <div class="feature-icon bg-blurple">
+                    <div class="feature-icon bg-primary">
                         <i class="fas fa-vial"></i>
                     </div>
                     <h3>Tried and Tested</h3>
                     <p>
-                        Proudly served <span id="webhooks">0</span> unique webhooks and <span id="requests">0</span>
-                        requests.
+                        Proudly served <span id="webhooks">some amount of</span> unique webhooks and
+                        <span id="requests">a lot of</span> requests.
                     </p>
                 </div>
                 <div class="feature col">
-                    <div class="feature-icon bg-blurple">
+                    <div class="feature-icon bg-primary">
                         <i class="fas fa-signal"></i>
                     </div>
                     <h3>Kept Up</h3>
@@ -100,9 +131,7 @@
         </main>
 
         <footer class="footer">
-            <div class="container">
-                A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>.
-            </div>
+            <div class="container">A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>.</div>
         </footer>
 
         <a
@@ -156,8 +185,47 @@
             }
         </style>
 
+        <div class="modal fade" id="getStarted" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-xl" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Getting Started</h5>
+                        <button type="button" class="close btn" data-bs-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You're probably starting with some code like this:</p>
+                        <pre><code class="language-lua">local httpService = game:GetService("HttpService")
+
+httpService:PostAsync("https://discord.com/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}",
+	httpService:JSONEncode({
+		content = "Hello, world!"
+	})
+)</code></pre>
+                        <p>
+                            It's very simple to convert this over to WebhookProxy. Just swap out
+                            <code>discord.com</code> with <code class="hostname">webhook.lewistehminerz.dev</code>.
+                        </p>
+                        <pre><code class="language-lua">local httpService = game:GetService("HttpService")
+
+httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev</span>/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}",
+	httpService:JSONEncode({
+		content = "Hello, world!"
+	})
+)</code></pre>
+                        <p>And in no time at all, your webhooks are back to functioning!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
-            document.getElementById('hostname').innerText = window.location.host;
+            if (window.location.protocol === 'http:') {
+                document.getElementById('httpWarning').style.display = 'block';
+            }
+
+            for (const element of document.getElementsByClassName('hostname')) element.innerText = window.location.host;
 
             const CountUp = countUp.CountUp;
 
