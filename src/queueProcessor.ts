@@ -72,7 +72,7 @@ async function run() {
 
                 if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
                     // process ratelimits
-                    ratelimits[req.params.id] = parseInt(response.headers['x-ratelimit-reset']);
+                    ratelimits[data.id] = parseInt(response.headers['x-ratelimit-reset']);
                 }
 
                 // can be ratelimited due to concurrency (e.g., sending webhooks manually + queueing)
