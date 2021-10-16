@@ -70,6 +70,11 @@ async function run() {
                     }
                 );
 
+                if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
+                    // process ratelimits
+                    ratelimits[req.params.id] = parseInt(response.headers['x-ratelimit-reset']);
+                }
+
                 // can be ratelimited due to concurrency (e.g., sending webhooks manually + queueing)
                 if (response.status === 429) return rabbitMq.reject(msg); // die if ratelimited
 
