@@ -319,6 +319,13 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
     const body = req.body;
 
+    if (!body) {
+        return res.status(400).json({
+            proxy: true,
+            error: 'No body provided. The proxy only accepts valid JSON bodies.'
+        });
+    }
+
     const banInfo = await getWebhookBanInfo(req.params.id);
     if (banInfo) {
         warn(req.params.id, 'attempted to request whilst blocked for', banInfo.reason);
@@ -508,11 +515,18 @@ app.use(unknownEndpointRatelimit, (req, res, next) => {
 });
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    if (err instanceof SyntaxError && 'body' in err) {
+        return res.status(400).json({
+            proxy: true,
+            error: 'Malformed request. The proxy only accepts valid JSON bodies.'
+        });
+    }
+
     error('error encountered:', err);
 
     return res.status(500).json({
         proxy: true,
-        message: 'An error occurred while processing your request.'
+        error: 'An error occurred while processing your request.'
     });
 });
 
