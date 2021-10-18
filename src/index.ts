@@ -319,7 +319,9 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
     const body = req.body;
 
-    if (!body) {
+    if (!body.content && !body.embeds && !body.file) {
+        badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
+        badRequests[req.params.id].count++;
         return res.status(400).json({
             proxy: true,
             error: 'No body provided. The proxy only accepts valid JSON bodies.'
