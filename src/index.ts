@@ -292,6 +292,15 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         .then()
         .catch(e => warn('failed to update stats', e));
 
+    try {
+        BigInt(req.params.id);
+    } catch {
+        return res.status(400).json({
+            proxy: true,
+            error: 'Webhook ID does not appear to be a snowflake.'
+        });
+    }
+
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
         const expiry = Math.floor(ipBan.expires.getTime() / 1000);
