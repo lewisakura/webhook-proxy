@@ -1,5 +1,5 @@
 import amqp from 'amqplib';
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 
 import fs from 'fs';
 
@@ -55,19 +55,26 @@ async function run() {
                 }
             }
 
-            const response = await client.post(
-                `http://localhost:${config.port}/api/webhooks/${data.id}/${data.token}?wait=false${
-                    data.threadId ? '&thread_id=' + data.threadId : ''
-                }`,
-                data.body,
-                {
-                    headers: {
-                        'User-Agent':
-                            'WebhookProxy-QueueProcessor/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
-                        'Content-Type': 'application/json'
+            let response: AxiosResponse<any>;
+
+            try {
+                response = await client.post(
+                    `http://localhost:${config.port}/api/webhooks/${data.id}/${data.token}?wait=false${
+                        data.threadId ? '&thread_id=' + data.threadId : ''
+                    }`,
+                    data.body,
+                    {
+                        headers: {
+                            'User-Agent':
+                                'WebhookProxy-QueueProcessor/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
+                            'Content-Type': 'application/json'
+                        }
                     }
-                }
-            );
+                );
+            } catch (e) {
+                error('Failed to submit webhook to self:', e);
+                return rabbitMq.reject(msg);
+            }
 
             if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
                 // process ratelimits
