@@ -40,53 +40,51 @@ async function run() {
     }
 
     log('Consuming.');
-    while (true) {
-        await rabbitMq.consume(
-            config.queue.queue,
-            async msg => {
-                const data = JSON.parse(msg.content.toString());
+    await rabbitMq.consume(
+        config.queue.queue,
+        async msg => {
+            const data = JSON.parse(msg.content.toString());
 
-                const ratelimit = ratelimits[data.id];
-                if (ratelimit) {
-                    if (ratelimit < Date.now() / 1000) {
-                        delete ratelimits[data.id];
-                    } else {
-                        // mark message as dead, will be requeued via DLX
-                        return rabbitMq.reject(msg);
+            const ratelimit = ratelimits[data.id];
+            if (ratelimit) {
+                if (ratelimit < Date.now() / 1000) {
+                    delete ratelimits[data.id];
+                } else {
+                    // mark message as dead, will be requeued via DLX
+                    return rabbitMq.reject(msg);
+                }
+            }
+
+            const response = await client.post(
+                `http://localhost:${config.port}/api/webhooks/${data.id}/${data.token}?wait=false${
+                    data.threadId ? '&thread_id=' + data.threadId : ''
+                }`,
+                data.body,
+                {
+                    headers: {
+                        'User-Agent':
+                            'WebhookProxy-QueueProcessor/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
+                        'Content-Type': 'application/json'
                     }
                 }
+            );
 
-                const response = await client.post(
-                    `http://localhost:${config.port}/api/webhooks/${data.id}/${data.token}?wait=false${
-                        data.threadId ? '&thread_id=' + data.threadId : ''
-                    }`,
-                    data.body,
-                    {
-                        headers: {
-                            'User-Agent':
-                                'WebhookProxy-QueueProcessor/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
-                            'Content-Type': 'application/json'
-                        }
-                    }
-                );
+            if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
+                // process ratelimits
+                ratelimits[data.id] = parseInt(response.headers['x-ratelimit-reset']);
+            }
 
-                if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
-                    // process ratelimits
-                    ratelimits[data.id] = parseInt(response.headers['x-ratelimit-reset']);
-                }
+            // can be ratelimited due to concurrency (e.g., sending webhooks manually + queueing)
+            if (response.status === 429) return rabbitMq.reject(msg); // die if ratelimited
 
-                // can be ratelimited due to concurrency (e.g., sending webhooks manually + queueing)
-                if (response.status === 429) return rabbitMq.reject(msg); // die if ratelimited
+            if (response.status >= 400 && response.status < 500) {
+                warn(data.id, 'made a bad request');
+            }
 
-                if (response.status >= 400 && response.status < 500) {
-                    warn(data.id, 'made a bad request');
-                }
-
-                rabbitMq.ack(msg);
-            },
-            { noAck: false }
-        );
-    }
+            rabbitMq.ack(msg);
+        },
+        { noAck: false }
+    );
 }
 
 run();
