@@ -277,8 +277,8 @@ app.use(Express.static('public'));
 
 app.get('/stats', statsEndpointRatelimit, async (req, res) => {
     const data = await Promise.all([
-        db.webhooksSeen.count(),
-        (async () => parseInt((await redis.get('stats:requests')) ?? '0'))()
+        (async () => parseInt((await redis.get('stats:requests')) ?? '0'))(),
+        db.webhooksSeen.count()
     ]);
 
     return res.json({
