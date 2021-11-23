@@ -14,7 +14,6 @@ import { error, log, warn } from './log';
 
 import 'express-async-errors';
 import { setup } from './rmq';
-import { info } from 'console';
 
 const VERSION = (() => {
     const rev = fs.readFileSync('.git/HEAD').toString().trim();
@@ -501,7 +500,7 @@ app.listen(config.port, async () => {
     log('Up and running. Version:', VERSION);
 
     setInterval(() => {
-        info('In the last minute, this worker handled', requestsHandled, 'requests.');
+        log('In the last minute, this worker handled', requestsHandled, 'requests.');
         requestsHandled = 0;
     }, 60000);
 
