@@ -14,6 +14,7 @@ import { error, log, warn } from './log';
 
 import 'express-async-errors';
 import { setup } from './rmq';
+import { info } from 'console';
 
 const VERSION = (() => {
     const rev = fs.readFileSync('.git/HEAD').toString().trim();
@@ -49,6 +50,8 @@ beforeShutdown(async () => {
 });
 
 let rabbitMq: amqp.Channel;
+
+let requestsHandled = 0;
 
 async function banWebhook(id: string, reason: string) {
     // set the cached version up first so we prevent race conditions.
@@ -273,15 +276,9 @@ const client = axios.create({
 app.use(Express.static('public'));
 
 app.get('/stats', statsEndpointRatelimit, async (req, res) => {
-    const stats = await db.stats.findUnique({
-        where: {
-            name: 'requests'
-        }
-    });
-
     return res.json({
-        requests: stats?.value ?? 0,
-        webhooks: await db.webhooksSeen.count(),
+        requests: parseInt((await redis.get('stats:requests')) ?? '0'),
+        webhooks: parseInt((await redis.get('stats:webhooksSeen')) ?? '0'),
         version: VERSION
     });
 });
@@ -299,23 +296,8 @@ app.get('/announcement', async (req, res) => {
 });
 
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
-    db.stats
-        .upsert({
-            where: {
-                name: 'requests'
-            },
-            update: {
-                value: {
-                    increment: 1
-                }
-            },
-            create: {
-                name: 'requests',
-                value: 1
-            }
-        })
-        .then()
-        .catch(e => warn('failed to update stats', e));
+    redis.incr('stats:requests');
+    requestsHandled++;
 
     try {
         BigInt(req.params.id);
@@ -411,17 +393,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         });
     }
 
-    db.webhooksSeen
-        .upsert({
-            where: {
-                id: req.params.id
-            },
-            create: {
-                id: req.params.id
-            },
-            update: {}
-        })
-        .then();
+    redis.incr('stats:webhooksSeen');
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         await trackBadRequest(req.params.id);
@@ -524,6 +496,11 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 app.listen(config.port, async () => {
     log('Up and running. Version:', VERSION);
+
+    setInterval(() => {
+        info('In the last minute, this worker handled', requestsHandled, 'requests.');
+        requestsHandled = 0;
+    }, 60000);
 
     if (config.queue.enabled) {
         try {
