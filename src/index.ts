@@ -276,9 +276,14 @@ const client = axios.create({
 app.use(Express.static('public'));
 
 app.get('/stats', statsEndpointRatelimit, async (req, res) => {
+    const data = await Promise.all([
+        db.webhooksSeen.count(),
+        (async () => parseInt((await redis.get('stats:requests')) ?? '0'))()
+    ]);
+
     return res.json({
-        requests: parseInt((await redis.get('stats:requests')) ?? '0'),
-        webhooks: parseInt((await redis.get('stats:webhooksSeen')) ?? '0'),
+        requests: data[0],
+        webhooks: data[1],
         version: VERSION
     });
 });
@@ -392,8 +397,6 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             error: 'This webhook does not exist.'
         });
     }
-
-    redis.incr('stats:webhooksSeen');
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         await trackBadRequest(req.params.id);
