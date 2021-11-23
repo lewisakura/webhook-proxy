@@ -153,6 +153,7 @@ async function getIPBanInfo(id: string): Promise<{ reason: string; expires: Date
     const data = await redis.get(`ipBan:${id}`);
     if (data) {
         const ban = JSON.parse(data);
+        if (ban === null) return undefined;
         return { reason: ban.reason, expires: new Date(ban.expires) };
     }
 
