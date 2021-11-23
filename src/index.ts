@@ -2,12 +2,12 @@ import axios from 'axios';
 import bodyParser from 'body-parser';
 import Express, { NextFunction, Request, Response } from 'express';
 import slowDown from 'express-slow-down';
-import Cache from 'node-cache';
-import { BannedIP, BannedWebhook, PrismaClient } from '@prisma/client';
+import RedisStore from 'rate-limit-redis';
+import { PrismaClient } from '@prisma/client';
 import amqp from 'amqplib';
+import Redis from 'ioredis';
 
 import fs from 'fs';
-import path from 'path';
 
 import beforeShutdown from './beforeShutdown';
 import { error, log, warn } from './log';
@@ -15,25 +15,18 @@ import { error, log, warn } from './log';
 import 'express-async-errors';
 import { setup } from './rmq';
 
-const db = new PrismaClient();
-beforeShutdown(async () => {
-    await db.$disconnect();
-});
-
-const webhookBansCache = new Cache({ stdTTL: 60 * 60 * 24 });
-const ipBansCache = new Cache({ stdTTL: 60 * 60 * 24 });
-
-// [webhook id]: reset time
-const ratelimits: { [id: string]: number } = {};
-
-// [webhook id]: count
-const violations: { [id: string]: { count: number; expires: number } } = {};
-
-// [webhook id]: expiry
-const badRequests: { [id: string]: { count: number; expires: number } } = {};
-
-// [ip]: count
-const badWebhooks: { [ip: string]: { count: number; expires: number } } = {};
+const VERSION = (() => {
+    const rev = fs.readFileSync('.git/HEAD').toString().trim();
+    if (rev.indexOf(':') === -1) {
+        return rev;
+    } else {
+        return fs
+            .readFileSync('.git/' + rev.substring(5))
+            .toString()
+            .trim()
+            .slice(0, 7);
+    }
+})();
 
 const app = Express();
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
@@ -45,125 +38,104 @@ const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
         rabbitmq: string;
         queue: string;
     };
+    redis: string;
 };
+
+const db = new PrismaClient();
+const redis = new Redis(config.redis);
+beforeShutdown(async () => {
+    await db.$disconnect();
+    redis.disconnect(false);
+});
 
 let rabbitMq: amqp.Channel;
 
-if (config.autoBlock) {
-    setInterval(async () => {
-        const blocks = [];
-
-        for (const [k, v] of Object.entries(violations)) {
-            if (v.expires < Date.now() / 1000) {
-                delete violations[k];
-                continue;
-            }
-
-            if (v.count > 50) {
-                // whilst this should never happen, we'll upsert anyway
-                blocks.push(
-                    db.bannedWebhook.upsert({
-                        where: {
-                            id: k
-                        },
-                        create: {
-                            id: k,
-                            reason: '[Automated] Ratelimited >50 times within a minute.'
-                        },
-                        update: {
-                            reason: '[Automated] Ratelimited >50 times within a minute.'
-                        }
-                    })
-                );
-                webhookBansCache.del(k);
-                warn('blocked', k, 'for >50 ratelimit violations within 1 minute');
-                delete violations[k];
-            }
+async function banWebhook(id: string, reason: string) {
+    // set the cached version up first so we prevent race conditions.
+    //
+    // without setting the cache first, we might hit a point where two requests trigger a ban.
+    // setting it in cache first will prevent this since it will read the cached version first,
+    // realise that they're banned, and stop the request there.
+    await redis.set(`webhookBan:${id}`, reason, 'EX', 24 * 60 * 60);
+    await db.bannedWebhook.upsert({
+        where: {
+            id
+        },
+        create: {
+            id,
+            reason
+        },
+        update: {
+            reason
         }
+    });
 
-        if (blocks.length > 0) {
-            await db.$transaction(blocks);
-        }
-    }, 1000);
-
-    setInterval(async () => {
-        const blocks = [];
-
-        for (const [k, v] of Object.entries(badRequests)) {
-            if (v.expires < Date.now() / 1000) {
-                delete badRequests[k];
-                continue;
-            }
-
-            if (v.count > 30) {
-                blocks.push(
-                    db.bannedWebhook.upsert({
-                        where: {
-                            id: k
-                        },
-                        create: {
-                            id: k,
-                            reason: '[Automated] >30 bad requests within 10 minutes.'
-                        },
-                        update: {
-                            reason: '[Automated] >30 bad requests within 10 minutes.'
-                        }
-                    })
-                );
-                webhookBansCache.del(k);
-                warn('blocked', k, 'for >30 bad requests within 10 minutes');
-                delete badRequests[k];
-            }
-        }
-
-        if (blocks.length > 0) {
-            await db.$transaction(blocks);
-        }
-    }, 1000);
-
-    setInterval(async () => {
-        const blocks = [];
-
-        for (const [k, v] of Object.entries(badWebhooks)) {
-            if (v.expires < Date.now() / 1000) {
-                delete badWebhooks[k];
-                continue;
-            }
-
-            if (v.count > 5) {
-                const expiry = new Date();
-                expiry.setDate(expiry.getDate() + 3); // 3-day ban
-
-                blocks.push(
-                    db.bannedIP.upsert({
-                        where: {
-                            id: k
-                        },
-                        create: {
-                            id: k,
-                            reason: '[Automated] >5 unique non-existent webhook requests within 1 hour.',
-                            expires: expiry
-                        },
-                        update: {
-                            reason: '[Automated] >5 unique non-existent webhook requests within 1 hour.'
-                        }
-                    })
-                );
-                ipBansCache.del(k);
-                warn('blocked', k, 'for >5 unique non-existent webhook requests within 1 hour');
-                delete badRequests[k];
-            }
-        }
-
-        if (blocks.length > 0) {
-            await db.$transaction(blocks);
-        }
-    }, 1000);
+    warn('banned', id, 'for', reason);
 }
 
-async function getWebhookBanInfo(id: string) {
-    if (webhookBansCache.has(id)) {
-        return webhookBansCache.get<BannedWebhook>(id);
+async function banIp(ip: string, reason: string) {
+    // see justification above for setting cache first
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + 3); // 3-day ban
+
+    await redis.set(`ipBan:${ip}`, reason, 'PXAT', expiry.getTime());
+    await db.bannedIP.upsert({
+        where: {
+            id: ip
+        },
+        create: {
+            id: ip,
+            reason,
+            expires: expiry
+        },
+        update: {
+            reason
+        }
+    });
+
+    warn('banned', ip, 'for', reason);
+}
+
+async function trackRatelimitViolation(id: string) {
+    const violations = await redis.incr(`webhookRatelimit:${id}`);
+    await redis.send_command('EXPIRE', [`webhookRatelimit:${id}`, 60, 'NX']);
+
+    if (violations > 50 && config.autoBlock) {
+        await banWebhook(id, '[Automated] Ratelimited >50 times within a minute.');
+        await redis.del(`webhookRatelimit:${id}`);
+    }
+
+    return violations;
+}
+
+async function trackBadRequest(id: string) {
+    const violations = await redis.incr(`badRequests:${id}`);
+    await redis.send_command('EXPIRE', [`badRequests:${id}`, 60 * 60, 'NX']);
+
+    if (violations > 30 && config.autoBlock) {
+        await banWebhook(id, '[Automated] >30 bad requests within 10 minutes.');
+        await redis.del(`badRequests:${id}`);
+    }
+
+    return violations;
+}
+
+async function trackNonExistentWebhook(ip: string) {
+    const violations = await redis.incr(`nonExistentWebhooks:${ip}`);
+    await redis.send_command('EXPIRE', [`badRequests:${ip}`, 3600, 'NX']);
+
+    if (violations > 5 && config.autoBlock) {
+        await banIp(ip, '[Automated] >5 unique non-existent webhook requests within 1 hour.');
+        await redis.del(`nonExistentWebhooks:${ip}`);
+    }
+
+    return violations;
+}
+
+async function getWebhookBanInfo(id: string): Promise<string> {
+    const data = await redis.get(`webhookBan:${id}`);
+    if (data) {
+        return data;
     }
 
     const ban = await db.bannedWebhook.findUnique({
@@ -172,23 +144,46 @@ async function getWebhookBanInfo(id: string) {
         }
     });
 
-    webhookBansCache.set(id, ban);
+    await redis.set(`webhookBan:${id}`, ban?.reason, 'EX', 24 * 60 * 60);
 
-    return ban;
+    return ban?.reason;
 }
 
-async function getIPBanInfo(id: string) {
-    if (ipBansCache.has(id)) {
-        return ipBansCache.get<BannedIP>(id);
+async function getIPBanInfo(id: string): Promise<{ reason: string; expires: Date }> {
+    const data = await redis.get(`ipBan:${id}`);
+    if (data) {
+        const ban = JSON.parse(data);
+        return { reason: ban.reason, expires: new Date(ban.expires) };
     }
 
     const ban = await db.bannedIP.findUnique({
         where: {
             id
+        },
+        select: {
+            reason: true,
+            expires: true
         }
     });
 
-    ipBansCache.set(id, ban);
+    if (ban) {
+        if (ban.expires.getTime() <= Date.now()) {
+            await db.bannedIP.delete({
+                where: {
+                    id
+                }
+            });
+            await redis.del(`ipBan:${id}`);
+            return undefined;
+        }
+    }
+
+    await redis.set(
+        `ipBan:${id}`,
+        JSON.stringify(ban),
+        'PXAT',
+        ban?.expires.getTime() ?? Date.now() + 24 * 60 * 60 * 1000
+    );
 
     return ban;
 }
@@ -211,7 +206,9 @@ const webhookPostRatelimit = slowDown({
 
     keyGenerator(req, res) {
         return req.params.id ?? req.ip; // use the webhook ID as a ratelimiting key, otherwise use IP
-    }
+    },
+
+    store: new RedisStore({ client: redis, prefix: 'ratelimit:webhookPost:' })
 });
 
 const webhookQueuePostRatelimit = slowDown({
@@ -222,7 +219,9 @@ const webhookQueuePostRatelimit = slowDown({
 
     keyGenerator(req, res) {
         return req.params.id ?? req.ip; // use the webhook ID as a ratelimiting key, otherwise use IP
-    }
+    },
+
+    store: new RedisStore({ client: redis, prefix: 'ratelimit:webhookQueue:' })
 });
 
 const webhookInvalidPostRatelimit = slowDown({
@@ -237,21 +236,27 @@ const webhookInvalidPostRatelimit = slowDown({
 
     skip(req, res) {
         return !(res.statusCode >= 400 && res.statusCode < 500 && res.statusCode !== 429); // trigger if it's a 4xx but not a ratelimit
-    }
+    },
+
+    store: new RedisStore({ client: redis, prefix: 'ratelimit:webhookInvalidPost:' })
 });
 
 const unknownEndpointRatelimit = slowDown({
     windowMs: 10000,
     delayAfter: 5,
     delayMs: 500,
-    maxDelayMs: 30000
+    maxDelayMs: 30000,
+
+    store: new RedisStore({ client: redis, prefix: 'ratelimit:unknownEndpoint:' })
 });
 
 const statsEndpointRatelimit = slowDown({
     windowMs: 5000,
     delayAfter: 1,
     delayMs: 500,
-    maxDelayMs: 30000
+    maxDelayMs: 30000,
+
+    store: new RedisStore({ client: redis, prefix: 'ratelimit:statsEndpoint:' })
 });
 
 const client = axios.create({
@@ -269,9 +274,22 @@ app.get('/stats', statsEndpointRatelimit, async (req, res) => {
 
     return res.json({
         requests: stats?.value ?? 0,
-        webhooks: await db.webhooksSeen.count()
+        webhooks: await db.webhooksSeen.count(),
+        version: VERSION
     });
 });
+
+app.get('/announcement', async (req, res) => {
+    const announcement = await redis.hgetall('announcement');
+
+    if (!announcement.style) return res.json({});
+
+    return res.json({
+        title: announcement['title'],
+        message: announcement['message'],
+        style: announcement['style']
+    });
+})
 
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
     db.stats
@@ -303,24 +321,13 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
-        const expiry = Math.floor(ipBan.expires.getTime() / 1000);
-
-        if (expiry < Date.now() / 1000) {
-            await db.bannedIP.delete({
-                where: {
-                    id: ipBan.id
-                }
-            });
-            ipBansCache.del(ipBan.id);
-        } else {
-            warn('ip', req.ip, 'attempted to request to', req.params.id, 'whilst banned');
-            return res.status(403).json({
-                proxy: true,
-                message: 'This IP address has been banned.',
-                reason: ipBan.reason,
-                expires: expiry
-            });
-        }
+        warn('ip', req.ip, 'attempted to request to', req.params.id, 'whilst banned');
+        return res.status(403).json({
+            proxy: true,
+            message: 'This IP address has been banned.',
+            reason: ipBan.reason,
+            expires: ipBan.expires.getTime()
+        });
     }
 
     const wait = req.query.wait ?? false;
@@ -329,8 +336,10 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     const body = req.body;
 
     if (!body.content && !body.embeds && !body.file) {
-        badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
-        badRequests[req.params.id].count++;
+        const violations = await trackBadRequest(req.params.id);
+
+        warn(req.params.id, 'made a bad request, they have made', violations, 'within the window');
+
         return res.status(400).json({
             proxy: true,
             error: 'No body provided. The proxy only accepts valid JSON bodies.'
@@ -339,39 +348,29 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
     const banInfo = await getWebhookBanInfo(req.params.id);
     if (banInfo) {
-        warn(req.params.id, 'attempted to request whilst blocked for', banInfo.reason);
+        warn(req.params.id, 'attempted to request whilst blocked for', banInfo);
         return res.status(403).json({
             proxy: true,
             message: 'This webhook has been blocked. Please contact @Lewis_Schumer on the DevForum.',
-            reason: banInfo.reason
+            reason: banInfo
         });
     }
 
     // if we know this webhook is already ratelimited, don't hit discord but reject the request instead
-    const ratelimit = ratelimits[req.params.id];
+    const ratelimit = await redis.get(`webhookRatelimit:${req.params.id}`);
     if (ratelimit) {
-        if (ratelimit < Date.now() / 1000) {
-            delete ratelimits[req.params.id];
-        } else {
-            res.setHeader('X-RateLimit-Limit', 5);
-            res.setHeader('X-RateLimit-Remaining', 0);
-            res.setHeader('X-RateLimit-Reset', ratelimit);
+        res.setHeader('X-RateLimit-Limit', 5);
+        res.setHeader('X-RateLimit-Remaining', 0);
+        res.setHeader('X-RateLimit-Reset', ratelimit);
 
-            violations[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 60 };
-            violations[req.params.id].count++;
+        const violations = await trackRatelimitViolation(req.params.id);
 
-            warn(
-                req.params.id,
-                'hit ratelimit, they have done so',
-                violations[req.params.id].count,
-                'times within the window'
-            );
+        warn(req.params.id, 'hit ratelimit, they have done so', violations, 'times within the window');
 
-            return res.status(429).json({
-                proxy: true,
-                message: 'You have been ratelimited. Please respect the standard Discord ratelimits.'
-            });
-        }
+        return res.status(429).json({
+            proxy: true,
+            message: 'You have been ratelimited. Please respect the standard Discord ratelimits.'
+        });
     }
 
     const response = await client.post(
@@ -401,15 +400,8 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             }
         });
 
-        badWebhooks[req.ip] ??= { count: 0, expires: Date.now() / 1000 + 3600 };
-        badWebhooks[req.ip].count++;
-
-        warn(
-            req.ip,
-            'made a request to a nonexistent webhook, they have made',
-            badWebhooks[req.ip].count,
-            'within the window'
-        );
+        const violations = await trackNonExistentWebhook(req.ip);
+        warn(req.ip, 'made a request to a nonexistent webhook, they have made', violations, 'within the window');
 
         return res.status(404).json({
             proxy: true,
@@ -430,19 +422,19 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         .then();
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-        badRequests[req.params.id] ??= { count: 0, expires: Date.now() / 1000 + 600 };
-        badRequests[req.params.id].count++;
-        warn(
-            req.params.id,
-            'made a bad request, they have made',
-            badRequests[req.params.id].count,
-            'within the window'
-        );
+        const violations = await trackBadRequest(req.params.id);
+
+        warn(req.params.id, 'made a bad request, they have made', violations, 'within the window');
     }
 
     if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
         // process ratelimits
-        ratelimits[req.params.id] = parseInt(response.headers['x-ratelimit-reset']);
+        await redis.set(
+            `webhookRatelimit:${req.params.id}`,
+            parseInt(response.headers['x-ratelimit-reset']),
+            'EXAT',
+            parseInt(response.headers['x-ratelimit-reset'])
+        );
     }
 
     // forward headers to allow clients to process ratelimits themselves
@@ -462,37 +454,26 @@ app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req
 
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
-        const expiry = Math.floor(ipBan.expires.getTime() / 1000);
-
-        if (expiry < Date.now() / 1000) {
-            await db.bannedIP.delete({
-                where: {
-                    id: ipBan.id
-                }
-            });
-            ipBansCache.del(ipBan.id);
-        } else {
-            warn('ip', req.ip, 'attempted to queue to', req.params.id, 'whilst banned');
-            return res.status(403).json({
-                proxy: true,
-                message: 'This IP address has been banned.',
-                reason: ipBan.reason,
-                expires: expiry
-            });
-        }
+        warn('ip', req.ip, 'attempted to queue to', req.params.id, 'whilst banned');
+        return res.status(403).json({
+            proxy: true,
+            message: 'This IP address has been banned.',
+            reason: ipBan.reason,
+            expires: ipBan.expires.getTime()
+        });
     }
 
     const threadId = req.query.thread_id;
 
     const body = req.body;
 
-    const banInfo = await getWebhookBanInfo(req.params.id);
-    if (banInfo) {
-        warn(req.params.id, 'attempted to queue whilst blocked for', banInfo.reason);
+    const reason = await getWebhookBanInfo(req.params.id);
+    if (reason) {
+        warn(req.params.id, 'attempted to queue whilst blocked for', reason);
         return res.status(403).json({
             proxy: true,
             message: 'This webhook has been blocked. Please contact @Lewis_Schumer on the DevForum.',
-            reason: banInfo.reason
+            reason: reason
         });
     }
 
@@ -542,7 +523,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 });
 
 app.listen(config.port, async () => {
-    log('Up and running.');
+    log('Up and running. Version:', VERSION);
 
     if (config.queue.enabled) {
         try {

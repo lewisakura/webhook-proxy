@@ -6,5 +6,6 @@
         "enabled": false,
         "rabbitmq": "amqp://localhost",
         "queue": "webhook-proxy"
-    }
+    },
+    "redis": "redis://127.0.0.1/0"
 }

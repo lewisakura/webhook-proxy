@@ -1,5 +1,6 @@
 import amqp from 'amqplib';
 import axios, { AxiosResponse } from 'axios';
+import Redis from 'ioredis';
 
 import fs from 'fs';
 
@@ -14,16 +15,16 @@ const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
         rabbitmq: string;
         queue: string;
     };
+    redis: string;
 };
+
+const redis = new Redis(config.redis);
 
 const client = axios.create({
     validateStatus: () => true
 });
 
 let rabbitMq: amqp.Channel;
-
-// [webhook id]: reset time
-const ratelimits: { [id: string]: number } = {};
 
 async function run() {
     try {
@@ -45,14 +46,10 @@ async function run() {
         async msg => {
             const data = JSON.parse(msg.content.toString());
 
-            const ratelimit = ratelimits[data.id];
-            if (ratelimit) {
-                if (ratelimit < Date.now() / 1000) {
-                    delete ratelimits[data.id];
-                } else {
-                    // mark message as dead, will be requeued via DLX
-                    return rabbitMq.reject(msg);
-                }
+            // since the actual proxy sets this key, this is a more reliable way of checking the ratelimit
+            if (await redis.exists(`webhookRatelimit:${data.id}`)) {
+                // mark message as dead, will be requeued via DLX
+                return rabbitMq.reject(msg);
             }
 
             let response: AxiosResponse<any>;
@@ -74,11 +71,6 @@ async function run() {
             } catch (e) {
                 error('Failed to submit webhook to self:', e);
                 return rabbitMq.reject(msg);
-            }
-
-            if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
-                // process ratelimits
-                ratelimits[data.id] = parseInt(response.headers['x-ratelimit-reset']);
             }
 
             // can be ratelimited due to concurrency (e.g., sending webhooks manually + queueing)

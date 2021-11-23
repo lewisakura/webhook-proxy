@@ -43,6 +43,12 @@
                 </p>
             </div>
         </div>
+        <div class="container my-3" id="announcement" style="display: none">
+            <div class="alert">
+                <h5 class="alert-heading"></h5>
+                <p class="mb-0"></p>
+            </div>
+        </div>
         <div class="px-4 py-5 my-5 text-center">
             <img class="d-block mx-auto mb-4" src="/img/logo.svg" width="256" />
             <h1 class="display-5 fw-bold">WebhookProxy</h1>
@@ -141,11 +147,17 @@
                 This proxy only works with <code>POST /api/webhooks/:id/:token</code>. There are no other routes
                 implemented.
             </p>
+            <p>
+                There is an experimental queue system that you can use by making a request to
+                <code>POST /api/webhooks/:id/:token/queue</code>. This will guarantee that your message is sent and has
+                a much higher ratelimit (10/1s with no hard blocks, just a slowdown), but it does not guarantee order.
+                If order matters to you, use the standard webhook API.
+            </p>
         </main>
 
         <footer class="footer">
             <div class="container d-flex justify-content-between">
-                <div>A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>.</div>
+                <div>A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>. <span class="d-none d-lg-inline">Running version <code id="version">unknown</code>.</span></div>
 
                 <!-- This report button is primarily for the public instance. -->
                 <div>
@@ -256,13 +268,29 @@ httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev
 
             const webhooks = new CountUp('webhooks');
             const requests = new CountUp('requests');
+            const announcement = document.getElementById('announcement');
 
             async function getStats() {
                 const stats = await fetch('/stats').then(res => res.json());
                 webhooks.update(stats.webhooks);
                 requests.update(stats.requests);
+                document.getElementById('version').textContent = stats.version;
             }
 
+            async function getAnnouncement() {
+                const announcementData = await fetch('/announcement').then(res => res.json());
+                if (announcementData.message) {
+                    const alertWrapper = announcement.getElementsByClassName('alert')[0];
+                    alertWrapper.classList.add('alert-' + announcementData.style);
+
+                    alertWrapper.getElementsByClassName('alert-heading')[0].textContent = announcementData.title;
+                    alertWrapper.getElementsByTagName('p')[0].textContent = announcementData.message;
+
+                    announcement.style = '';
+                }
+            }
+
+            getAnnouncement();
             getStats();
             setInterval(getStats, 5000);
         </script>
