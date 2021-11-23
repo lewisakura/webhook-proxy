@@ -100,6 +100,8 @@ async function trackRatelimitViolation(id: string) {
     const violations = await redis.incr(`webhookRatelimit:${id}`);
     await redis.send_command('EXPIRE', [`webhookRatelimit:${id}`, 60, 'NX']);
 
+    warn(req.params.id, 'hit ratelimit, they have done so', violations, 'times within the window');
+
     if (violations > 50 && config.autoBlock) {
         await banWebhook(id, '[Automated] Ratelimited >50 times within a minute.');
         await redis.del(`webhookRatelimit:${id}`);
@@ -112,6 +114,8 @@ async function trackBadRequest(id: string) {
     const violations = await redis.incr(`badRequests:${id}`);
     await redis.send_command('EXPIRE', [`badRequests:${id}`, 60 * 60, 'NX']);
 
+    warn(id, 'made a bad request, they have made', violations, 'within the window');
+
     if (violations > 30 && config.autoBlock) {
         await banWebhook(id, '[Automated] >30 bad requests within 10 minutes.');
         await redis.del(`badRequests:${id}`);
@@ -123,6 +127,8 @@ async function trackBadRequest(id: string) {
 async function trackNonExistentWebhook(ip: string) {
     const violations = await redis.incr(`nonExistentWebhooks:${ip}`);
     await redis.send_command('EXPIRE', [`badRequests:${ip}`, 3600, 'NX']);
+
+    warn(ip, 'made a request to a nonexistent webhook, they have made', violations, 'within the window');
 
     if (violations > 5 && config.autoBlock) {
         await banIp(ip, '[Automated] >5 unique non-existent webhook requests within 1 hour.');
@@ -290,7 +296,7 @@ app.get('/announcement', async (req, res) => {
         message: announcement['message'],
         style: announcement['style']
     });
-})
+});
 
 app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
     db.stats
@@ -337,9 +343,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     const body = req.body;
 
     if (!body.content && !body.embeds && !body.file) {
-        const violations = await trackBadRequest(req.params.id);
-
-        warn(req.params.id, 'made a bad request, they have made', violations, 'within the window');
+        await trackBadRequest(req.params.id);
 
         return res.status(400).json({
             proxy: true,
@@ -364,9 +368,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         res.setHeader('X-RateLimit-Remaining', 0);
         res.setHeader('X-RateLimit-Reset', ratelimit);
 
-        const violations = await trackRatelimitViolation(req.params.id);
-
-        warn(req.params.id, 'hit ratelimit, they have done so', violations, 'times within the window');
+        await trackRatelimitViolation(req.params.id);
 
         return res.status(429).json({
             proxy: true,
@@ -401,8 +403,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             }
         });
 
-        const violations = await trackNonExistentWebhook(req.ip);
-        warn(req.ip, 'made a request to a nonexistent webhook, they have made', violations, 'within the window');
+        await trackNonExistentWebhook(req.ip);
 
         return res.status(404).json({
             proxy: true,
@@ -423,9 +424,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         .then();
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-        const violations = await trackBadRequest(req.params.id);
-
-        warn(req.params.id, 'made a bad request, they have made', violations, 'within the window');
+        await trackBadRequest(req.params.id);
     }
 
     if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
