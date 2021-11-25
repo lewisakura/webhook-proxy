@@ -128,7 +128,7 @@ async function trackBadRequest(id: string) {
 
 async function trackNonExistentWebhook(ip: string) {
     const violations = await redis.incr(`nonExistentWebhooks:${ip}`);
-    await redis.send_command('EXPIRE', [`badRequests:${ip}`, 3600, 'NX']);
+    await redis.send_command('EXPIRE', [`nonExistentWebhooks:${ip}`, 3600, 'NX']);
 
     warn(ip, 'made a request to a nonexistent webhook, they have made', violations, 'within the window');
 
