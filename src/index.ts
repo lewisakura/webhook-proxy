@@ -114,7 +114,7 @@ async function trackRatelimitViolation(id: string) {
 
 async function trackBadRequest(id: string) {
     const violations = await redis.incr(`badRequests:${id}`);
-    await redis.send_command('EXPIRE', [`badRequests:${id}`, 60 * 60, 'NX']);
+    await redis.send_command('EXPIRE', [`badRequests:${id}`, 600, 'NX']);
 
     warn(id, 'made a bad request, they have made', violations, 'within the window');
 
