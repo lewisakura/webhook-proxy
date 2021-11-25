@@ -488,7 +488,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
         });
     }
 
-    error('error encountered:', err);
+    error('error encountered:', err, 'by', req.params.id ?? req.ip);
 
     return res.status(500).json({
         proxy: true,
