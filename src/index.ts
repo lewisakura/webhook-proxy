@@ -130,6 +130,9 @@ async function trackNonExistentWebhook(ip: string) {
     const violations = await redis.incr(`nonExistentWebhooks:${ip}`);
     await redis.send_command('EXPIRE', [`nonExistentWebhooks:${ip}`, 3600, 'NX']);
 
+    await redis.incr('nonExistentWebhooks');
+    await redis.send_command('EXPIRE', ['nonExistentWebhooks', 86400, 'NX']);
+
     warn(ip, 'made a request to a nonexistent webhook, they have made', violations, 'within the window');
 
     if (violations > 5 && config.autoBlock) {
@@ -360,6 +363,24 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             proxy: true,
             message: 'You have been ratelimited. Please respect the standard Discord ratelimits.'
         });
+    }
+
+    // antiabuse in case someone tries something funny
+    if (parseInt(await redis.get('nonExistentWebhooks')) > 12) {
+        if (!(await redis.exists(`webhooksSeen:${req.params.id}`))) {
+            await redis.set(
+                `webhooksSeen:${req.params.id}`,
+                (!!(await db.webhooksSeen.findUnique({ where: { id: req.params.id } }))).toString()
+            );
+            await redis.send_command('EXPIRE', [`webhooksSeen:${req.params.id}`, 600, 'NX']);
+        }
+
+        if ((await redis.get(`webhooksSeen:${req.params.id}`)) === 'false') {
+            return res.status(403).json({
+                proxy: true,
+                message: 'An anti-abuse mechanism has been fired and your webhook has not been seen before. Try again later.'
+            });
+        }
     }
 
     const response = await client.post(
