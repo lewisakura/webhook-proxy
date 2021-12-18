@@ -99,13 +99,14 @@ async function banIp(ip: string, reason: string) {
 }
 
 async function trackRatelimitViolation(id: string) {
-    const violations = await redis.incr(`webhookRatelimit:${id}`);
-    await redis.send_command('EXPIRE', [`webhookRatelimit:${id}`, 60, 'NX']);
+    const violations = await redis.incr(`webhookRatelimitViolation:${id}`);
+    await redis.send_command('EXPIRE', [`webhookRatelimitViolation:${id}`, 60, 'NX']);
 
     warn(id, 'hit ratelimit, they have done so', violations, 'times within the window');
 
     if (violations > 50 && config.autoBlock) {
         await banWebhook(id, '[Automated] Ratelimited >50 times within a minute.');
+        await redis.del(`webhookRatelimitViolation:${id}`);
         await redis.del(`webhookRatelimit:${id}`);
     }
 
