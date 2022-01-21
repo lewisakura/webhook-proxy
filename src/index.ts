@@ -294,7 +294,18 @@ app.get('/stats', statsEndpointRatelimit, async (req, res) => {
 app.get('/announcement', async (req, res) => {
     const announcement = await redis.hgetall('announcement');
 
-    if (!announcement.style) return res.json({});
+    if (!announcement.style) {
+        // check for abuse measures and inject automatic announcement if necessary
+        if (parseInt(await redis.get('nonExistentWebhooks')) > 12)
+            return res.json({
+                title: 'Anti-Abuse Engaged',
+                message:
+                    'WebhookProxy has detected potential abuse that could affect the service as a whole, and has stopped accepting new webhook requests for 24 hours. Please try your requests later.',
+                style: 'danger'
+            });
+
+        return res.json({});
+    }
 
     return res.json({
         title: announcement['title'],
@@ -379,7 +390,8 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         if ((await redis.get(`webhooksSeen:${req.params.id}`)) === 'false') {
             return res.status(403).json({
                 proxy: true,
-                message: 'An anti-abuse mechanism has been fired and your webhook has not been seen before. Try again later.'
+                message:
+                    'An anti-abuse mechanism has been fired and your webhook has not been seen before. Try again later.'
             });
         }
     }
@@ -417,6 +429,17 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
             proxy: true,
             error: 'This webhook does not exist.'
         });
+    }
+
+    // new webhook!
+    if (
+        !(await redis.exists(`webhooksSeen:${req.params.id}`)) ||
+        (await redis.get(`webhooksSeen:${req.params.id}`)) === 'false'
+    ) {
+        await redis.set(`webhooksSeen:${req.params.id}`, 'true');
+        await redis.send_command('EXPIRE', [`webhooksSeen:${req.params.id}`, 600, 'NX']);
+
+        await db.webhooksSeen.upsert({ where: { id: req.params.id }, update: {}, create: { id: req.params.id } });
     }
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
