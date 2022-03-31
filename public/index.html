@@ -252,6 +252,16 @@ httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev
 	})
 )</code></pre>
                         <p>And in no time at all, your webhooks are back to functioning!</p>
+
+			<p>If you're sending many requests a second, consider switching to the queue system:</p>
+			<pre><code class="language-lua">local httpService = game:GetService("HttpService")
+
+httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev</span>/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}/queue",
+	httpService:JSONEncode({
+		content = "Hello, world!"
+	})
+)</code></pre>
+                        <p>This will make sure all of your messages hit Discord at some point, no matter what!</p>
                     </div>
                 </div>
             </div>
