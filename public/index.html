@@ -76,7 +76,7 @@
 
         <main class="container">
             <h2>Why use WebhookProxy?</h2>
-            <div class="row g-4 py-5 pb-1 row-cols-1 row-cols-lg-4">
+            <div class="row g-4 py-5 pb-1 row-cols-1 row-cols-lg-5">
                 <div class="feature col">
                     <div class="feature-icon bg-primary">
                         <i class="fas fa-wrench"></i>
@@ -121,6 +121,17 @@
                         staff.
                     </p>
                 </div>
+                <div class="feature col">
+                    <div class="feature-icon bg-primary">
+                        <i class="fas fa-gauge-max"></i>
+                    </div>
+                    <h3>Optional Ratelimit Handling</h3>
+                    <p>
+                        Using <code>POST /api/webhooks/:id/:token/queue</code>, you can optionally stop writing ratelimit
+                        code by hand over and over. With a highly generous soft ratelimit of 10/1s, your messages are
+                        guaranteed to be sent no matter what, even if you go over Discord's ratelimit. We'll handle it.
+                    </p>
+                </div>
             </div>
 
             <div class="container">
@@ -146,12 +157,6 @@
             <p>
                 This proxy only works with <code>POST /api/webhooks/:id/:token</code>. There are no other routes
                 implemented.
-            </p>
-            <p>
-                There is an experimental queue system that you can use by making a request to
-                <code>POST /api/webhooks/:id/:token/queue</code>. This will guarantee that your message is sent and has
-                a much higher ratelimit (10/1s with no hard blocks, just a slowdown), but it does not guarantee order.
-                If order matters to you, use the standard webhook API.
             </p>
         </main>
 
