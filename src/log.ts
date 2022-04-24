@@ -1,6 +1,6 @@
 // basic logger with timestamps
 const white = '\u001b[30;47m';
-const yellow = '\u001b[37;47m';
+const yellow = '\u001b[30;43m';
 const red = '\u001b[37;41m';
 
 export function log(...args: any[]) {
