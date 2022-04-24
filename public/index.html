@@ -55,7 +55,24 @@
             <div class="col-lg-6 mx-auto">
                 <p class="lead mb-4">A Discord webhook proxy, primarily for Roblox games.</p>
             </div>
-            <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+            <withscript>
+                <div class="container my-2 w-50">
+                    <div class="d-flex gap-2 justify-content-center">
+                        <input type="textbox" class="form-control" id="webhookUrl" placeholder="Webhook URL" />
+                        <div class="d-flex align-items-center justify-content-center">
+                            <i class="fas fa-long-arrow-alt-right fa-2x"></i>
+                        </div>
+                        <input
+                            type="textbox"
+                            class="form-control"
+                            id="webhookUrlOutput"
+                            placeholder="Output..."
+                            readonly
+                        />
+                    </div>
+                </div>
+            </withscript>
+            <div class="d-flex gap-2 justify-content-center">
                 <withscript>
                     <button
                         type="button"
@@ -76,7 +93,7 @@
 
         <main class="container">
             <h2>Why use WebhookProxy?</h2>
-            <div class="row g-4 py-5 pb-1 row-cols-1 row-cols-lg-5">
+            <div class="row g-4 py-5 pb-1 row-cols-2 row-cols-lg-3 justify-content-center">
                 <div class="feature col">
                     <div class="feature-icon bg-primary">
                         <i class="fas fa-wrench"></i>
@@ -127,9 +144,10 @@
                     </div>
                     <h3>Optional Ratelimit Handling</h3>
                     <p>
-                        Using <code>POST /api/webhooks/:id/:token/queue</code>, you can optionally stop writing ratelimit
-                        code by hand over and over. With a highly generous soft ratelimit of 10/1s, your messages are
-                        guaranteed to be sent no matter what, even if you go over Discord's ratelimit. We'll handle it.
+                        Using <code>POST /api/webhooks/:id/:token/queue</code>, you can optionally stop writing
+                        ratelimit code by hand over and over. With a highly generous soft ratelimit of 10/1s, your
+                        messages are guaranteed to be sent no matter what, even if you go over Discord's ratelimit.
+                        We'll handle it.
                     </p>
                 </div>
             </div>
@@ -157,7 +175,10 @@
 
         <footer class="footer">
             <div class="container d-flex justify-content-between">
-                <div>A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>. <span class="d-none d-lg-inline">Running version <code id="version">unknown</code>.</span></div>
+                <div>
+                    A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>.
+                    <span class="d-none d-lg-inline">Running version <code id="version">unknown</code>.</span>
+                </div>
 
                 <!-- This report button is primarily for the public instance. -->
                 <div>
@@ -253,8 +274,8 @@ httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev
 )</code></pre>
                         <p>And in no time at all, your webhooks are back to functioning!</p>
 
-			<p>If you're sending many requests a second, consider switching to the queue system:</p>
-			<pre><code class="language-lua">local httpService = game:GetService("HttpService")
+                        <p>If you're sending many requests a second, consider switching to the queue system:</p>
+                        <pre><code class="language-lua">local httpService = game:GetService("HttpService")
 
 httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev</span>/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}/queue",
 	httpService:JSONEncode({
@@ -268,11 +289,27 @@ httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev
         </div>
 
         <script>
+            const discordWebhookUrlRegex =
+                /https:\/\/(?:(?:canary|ptb|www)\.)?discord\.com\/api\/webhooks\/(\d+)\/([a-zA-Z0-9-_]+)\/?/i;
+
             if (window.location.protocol === 'http:') {
                 document.getElementById('httpWarning').style.display = 'block';
             }
 
             for (const element of document.getElementsByClassName('hostname')) element.innerText = window.location.host;
+
+            const output = document.getElementById('webhookUrlOutput');
+            document.getElementById('webhookUrl').oninput = ({ target: { value } }) => {
+                const parts = discordWebhookUrlRegex.exec(value);
+                if (parts) {
+                    const id = parts[1];
+                    const token = parts[2];
+
+                    output.value = `https://webhook.lewistehminerz.dev/api/webhooks/${id}/${token}`;
+                } else {
+                    output.value = '';
+                }
+            };
 
             const CountUp = countUp.CountUp;
 

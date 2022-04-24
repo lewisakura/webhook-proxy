@@ -256,7 +256,7 @@ const webhookInvalidPostRatelimit = slowDown({
 
 const unknownEndpointRatelimit = slowDown({
     windowMs: 10000,
-    delayAfter: 5,
+    delayAfter: 10,
     delayMs: 500,
     maxDelayMs: 30000,
 
