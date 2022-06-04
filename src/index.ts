@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 import bodyParser from 'body-parser';
 import Express, { NextFunction, Request, Response } from 'express';
 import slowDown from 'express-slow-down';
@@ -134,11 +134,33 @@ async function trackNonExistentWebhook(ip: string) {
     await redis.incr('nonExistentWebhooks');
     await redis.send_command('EXPIRE', ['nonExistentWebhooks', 86400, 'NX']);
 
-    warn(ip, 'made a request to a nonexistent webhook, they have made', violations, 'within the window');
+    warn(ip, 'made a request to a nonexistent webhook, they have done so', violations, 'time within the window');
 
     if (violations > 5 && config.autoBlock) {
         await banIp(ip, '[Automated] >5 unique non-existent webhook requests within 1 hour.');
         await redis.del(`nonExistentWebhooks:${ip}`);
+    }
+
+    return violations;
+}
+
+async function trackInvalidWebhookToken(ip: string) {
+    const violations = await redis.incr(`invalidWebhookToken:${ip}`);
+    await redis.send_command('EXPIRE', [`invalidWebhookToken:${ip}`, 3600, 'NX']);
+
+    await redis.incr('invalidWebhookToken');
+    await redis.send_command('EXPIRE', ['invalidWebhookToken', 86400, 'NX']);
+
+    warn(
+        ip,
+        'made a request to a webhook with an invalid token, they have done so',
+        violations,
+        'times within the window'
+    );
+
+    if (violations > 10 && config.autoBlock) {
+        await banIp(ip, '[Automated] >10 invalid webhook token requests within 1 hour.');
+        await redis.del(`invalidWebhookToken:${ip}`);
     }
 
     return violations;
@@ -314,52 +336,29 @@ app.get('/announcement', async (req, res) => {
     });
 });
 
-app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
-    redis.incr('stats:requests');
-    requestsHandled++;
-
-    try {
-        BigInt(req.params.id);
-    } catch {
-        return res.status(400).json({
-            proxy: true,
-            error: 'Webhook ID does not appear to be a snowflake.'
-        });
-    }
-
+// sure this could be middleware but I want better control
+async function preRequestChecks(req: Request, res: Response) {
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
         warn('ip', req.ip, 'attempted to request to', req.params.id, 'whilst banned');
-        return res.status(403).json({
+        res.status(403).json({
             proxy: true,
             message: 'This IP address has been banned.',
             reason: ipBan.reason,
             expires: ipBan.expires.getTime()
         });
-    }
-
-    const wait = req.query.wait ?? false;
-    const threadId = req.query.thread_id;
-
-    const body = req.body;
-
-    if (!body.content && !body.embeds && !body.file) {
-        await trackBadRequest(req.params.id);
-
-        return res.status(400).json({
-            proxy: true,
-            error: 'No body provided. The proxy only accepts valid JSON bodies.'
-        });
+        return false;
     }
 
     const banInfo = await getWebhookBanInfo(req.params.id);
     if (banInfo) {
         warn(req.params.id, 'attempted to request whilst blocked for', banInfo);
-        return res.status(403).json({
+        res.status(403).json({
             proxy: true,
             message: 'This webhook has been blocked. Please contact @Lewis_Schumer on the DevForum.',
             reason: banInfo
         });
+        return false;
     }
 
     // if we know this webhook is already ratelimited, don't hit discord but reject the request instead
@@ -371,10 +370,11 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
         await trackRatelimitViolation(req.params.id);
 
-        return res.status(429).json({
+        res.status(429).json({
             proxy: true,
             message: 'You have been ratelimited. Please respect the standard Discord ratelimits.'
         });
+        return false;
     }
 
     // antiabuse in case someone tries something funny
@@ -388,28 +388,30 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         }
 
         if ((await redis.get(`webhooksSeen:${req.params.id}`)) === 'false') {
-            return res.status(403).json({
+            res.status(403).json({
                 proxy: true,
                 message:
                     'An anti-abuse mechanism has been fired and your webhook has not been seen before. Try again later.'
             });
+            return false;
         }
     }
 
-    const response = await client.post(
-        `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}?wait=${wait}${
-            threadId ? '&thread_id=' + threadId : ''
-        }`,
-        body,
-        {
-            headers: {
-                'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
-                'Content-Type': 'application/json'
-            }
-        }
-    );
+    return true;
+}
 
-    if (response.status === 404) {
+async function postRequestChecks(req: Request, res: Response, response: AxiosResponse<any>) {
+    if (response.status === 401 && response.data.code === 50027 /* invalid webhook token */) {
+        await trackInvalidWebhookToken(req.ip);
+
+        res.status(401).json({
+            proxy: true,
+            error: 'The authorization token for this webhook is invalid.'
+        });
+        return false;
+    }
+
+    if (response.status === 404 && response.data.code === 10015 /* webhook not found */) {
         await db.bannedWebhook.upsert({
             where: {
                 id: req.params.id
@@ -425,10 +427,11 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
         await trackNonExistentWebhook(req.ip);
 
-        return res.status(404).json({
+        res.status(404).json({
             proxy: true,
             error: 'This webhook does not exist.'
         });
+        return false;
     }
 
     // new webhook!
@@ -456,6 +459,53 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         );
     }
 
+    return true;
+}
+
+app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRatelimit, async (req, res) => {
+    redis.incr('stats:requests');
+    requestsHandled++;
+
+    try {
+        BigInt(req.params.id);
+    } catch {
+        res.status(400).json({
+            proxy: true,
+            error: 'Webhook ID does not appear to be a snowflake.'
+        });
+        return false;
+    }
+
+    if (!(await preRequestChecks(req, res))) return;
+
+    const body = req.body;
+
+    if (!body.content && !body.embeds && !body.file) {
+        res.status(400).json({
+            proxy: true,
+            error: 'No body provided. The proxy only accepts valid JSON bodies.'
+        });
+        return false;
+    }
+
+    const wait = req.query.wait ?? false;
+    const threadId = req.query.thread_id;
+
+    const response = await client.post(
+        `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}?wait=${wait}${
+            threadId ? '&thread_id=' + threadId : ''
+        }`,
+        body,
+        {
+            headers: {
+                'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
+                'Content-Type': 'application/json'
+            }
+        }
+    );
+
+    if (!(await postRequestChecks(req, res, response))) return;
+
     // forward headers to allow clients to process ratelimits themselves
     for (const header of Object.keys(response.headers)) {
         res.setHeader(header, response.headers[header]);
@@ -465,6 +515,131 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
 
     return res.status(response.status).json(response.data);
 });
+
+// PATCHes use the same ratelimit bucket as the regular message endpoint, so we don't do any special ratelimit handling here.
+app.patch(
+    '/api/webhooks/:id/:token/messages/:messageId',
+    webhookPostRatelimit,
+    webhookInvalidPostRatelimit,
+    async (req, res) => {
+        redis.incr('stats:requests');
+        requestsHandled++;
+
+        try {
+            BigInt(req.params.id);
+        } catch {
+            res.status(400).json({
+                proxy: true,
+                error: 'Webhook ID does not appear to be a snowflake.'
+            });
+            return false;
+        }
+
+        try {
+            BigInt(req.params.messageId);
+        } catch {
+            return res.status(400).json({
+                proxy: true,
+                error: 'Message ID does not appear to be a snowflake.'
+            });
+        }
+
+        if (!(await preRequestChecks(req, res))) return;
+
+        const body = req.body;
+
+        if (!body.content && !body.embeds && !body.file) {
+            res.status(400).json({
+                proxy: true,
+                error: 'No body provided. The proxy only accepts valid JSON bodies.'
+            });
+            return false;
+        }
+
+        const threadId = req.query.thread_id;
+
+        const response = await client.patch(
+            `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}/messages/${req.params.messageId}${
+                threadId ? '?thread_id=' + threadId : ''
+            }`,
+            body,
+            {
+                headers: {
+                    'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (!(await postRequestChecks(req, res, response))) return;
+
+        // forward headers to allow clients to process ratelimits themselves
+        for (const header of Object.keys(response.headers)) {
+            res.setHeader(header, response.headers[header]);
+        }
+
+        res.setHeader('Via', '1.0 WebhookProxy');
+
+        return res.status(response.status).json(response.data);
+    }
+);
+
+// DELETEs use the same ratelimit bucket as the regular message endpoint, so we don't do any special ratelimit handling here.
+app.delete(
+    '/api/webhooks/:id/:token/messages/:messageId',
+    webhookPostRatelimit,
+    webhookInvalidPostRatelimit,
+    async (req, res) => {
+        redis.incr('stats:requests');
+        requestsHandled++;
+
+        try {
+            BigInt(req.params.id);
+        } catch {
+            res.status(400).json({
+                proxy: true,
+                error: 'Webhook ID does not appear to be a snowflake.'
+            });
+            return false;
+        }
+
+        try {
+            BigInt(req.params.messageId);
+        } catch {
+            return res.status(400).json({
+                proxy: true,
+                error: 'Message ID does not appear to be a snowflake.'
+            });
+        }
+
+        if (!(await preRequestChecks(req, res))) return;
+
+        const threadId = req.query.thread_id;
+
+        const response = await client.delete(
+            `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}/messages/${req.params.messageId}${
+                threadId ? '?thread_id=' + threadId : ''
+            }`,
+            {
+                headers: {
+                    'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (!(await postRequestChecks(req, res, response))) return;
+
+        // forward headers to allow clients to process ratelimits themselves
+        for (const header of Object.keys(response.headers)) {
+            res.setHeader(header, response.headers[header]);
+        }
+
+        res.setHeader('Via', '1.0 WebhookProxy');
+
+        return res.status(response.status).json(response.data);
+    }
+);
 
 app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req, res) => {
     if (!config.queue.enabled) return res.status(403).json({ proxy: true, error: 'Queues have been disabled.' });
