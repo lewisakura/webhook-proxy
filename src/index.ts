@@ -128,6 +128,8 @@ async function trackBadRequest(id: string) {
 }
 
 async function trackNonExistentWebhook(ip: string) {
+    if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1') return; //ignore ourselves
+
     const violations = await redis.incr(`nonExistentWebhooks:${ip}`);
     await redis.send_command('EXPIRE', [`nonExistentWebhooks:${ip}`, 3600, 'NX']);
 
@@ -145,6 +147,8 @@ async function trackNonExistentWebhook(ip: string) {
 }
 
 async function trackInvalidWebhookToken(ip: string) {
+    if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1') return; //ignore ourselves
+
     const violations = await redis.incr(`invalidWebhookToken:${ip}`);
     await redis.send_command('EXPIRE', [`invalidWebhookToken:${ip}`, 3600, 'NX']);
 
@@ -184,6 +188,8 @@ async function getWebhookBanInfo(id: string): Promise<string> {
 }
 
 async function getIPBanInfo(id: string): Promise<{ reason: string; expires: Date }> {
+    if (id === 'localhost' || id === '::1' || id === '127.0.0.1') return undefined; //ignore ourselves
+
     const data = await redis.get(`ipBan:${id}`);
     if (data) {
         const ban = JSON.parse(data);
