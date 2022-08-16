@@ -147,7 +147,7 @@ async function trackNonExistentWebhook(ip: string) {
 }
 
 async function trackInvalidWebhookToken(ip: string) {
-    if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1') return; //ignore ourselves
+    if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') return; //ignore ourselves
 
     const violations = await redis.incr(`invalidWebhookToken:${ip}`);
     await redis.send_command('EXPIRE', [`invalidWebhookToken:${ip}`, 3600, 'NX']);
