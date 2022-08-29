@@ -305,7 +305,7 @@ httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev
                     const id = parts[1];
                     const token = parts[2];
 
-                    output.value = `https://webhook.lewistehminerz.dev/api/webhooks/${id}/${token}`;
+                    output.value = `https://${window.location.host}/api/webhooks/${id}/${token}`;
                 } else {
                     output.value = '';
                 }
