@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import amqp from 'amqplib';
 import Redis from 'ioredis';
 
+import crypto from 'crypto';
 import fs from 'fs';
 
 import beforeShutdown from './beforeShutdown';
@@ -80,7 +81,10 @@ async function banIp(ip: string, reason: string) {
     const expiry = new Date();
     expiry.setDate(expiry.getDate() + 3); // 3-day ban
 
-    await redis.set(`ipBan:${ip}`, reason, 'PXAT', expiry.getTime());
+    // generate a hash for redis since IPv6 is a pain to store in redis
+    const hash = crypto.createHash('sha1').update(ip).digest('hex');
+
+    await redis.set(`ipBan:${hash}`, reason, 'PXAT', expiry.getTime());
     await db.bannedIP.upsert({
         where: {
             id: ip
@@ -130,8 +134,11 @@ async function trackBadRequest(id: string) {
 async function trackNonExistentWebhook(ip: string) {
     if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') return; //ignore ourselves
 
-    const violations = await redis.incr(`nonExistentWebhooks:${ip}`);
-    await redis.send_command('EXPIRE', [`nonExistentWebhooks:${ip}`, 3600, 'NX']);
+    // generate a hash for redis since IPv6 is a pain to store in redis
+    const hash = crypto.createHash('sha1').update(ip).digest('hex');
+
+    const violations = await redis.incr(`nonExistentWebhooks:${hash}`);
+    await redis.send_command('EXPIRE', [`nonExistentWebhooks:${hash}`, 3600, 'NX']);
 
     await redis.incr('nonExistentWebhooks');
     await redis.send_command('EXPIRE', ['nonExistentWebhooks', 86400, 'NX']);
@@ -140,7 +147,7 @@ async function trackNonExistentWebhook(ip: string) {
 
     if (violations > 5 && config.autoBlock) {
         await banIp(ip, '[Automated] >5 unique non-existent webhook requests within 1 hour.');
-        await redis.del(`nonExistentWebhooks:${ip}`);
+        await redis.del(`nonExistentWebhooks:${hash}`);
     }
 
     return violations;
@@ -149,8 +156,11 @@ async function trackNonExistentWebhook(ip: string) {
 async function trackInvalidWebhookToken(ip: string) {
     if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') return; //ignore ourselves
 
-    const violations = await redis.incr(`invalidWebhookToken:${ip}`);
-    await redis.send_command('EXPIRE', [`invalidWebhookToken:${ip}`, 3600, 'NX']);
+    // generate a hash for redis since IPv6 is a pain to store in redis
+    const hash = crypto.createHash('sha1').update(ip).digest('hex');
+
+    const violations = await redis.incr(`invalidWebhookToken:${hash}`);
+    await redis.send_command('EXPIRE', [`invalidWebhookToken:${hash}`, 3600, 'NX']);
 
     await redis.incr('invalidWebhookToken');
     await redis.send_command('EXPIRE', ['invalidWebhookToken', 86400, 'NX']);
@@ -164,7 +174,7 @@ async function trackInvalidWebhookToken(ip: string) {
 
     if (violations > 10 && config.autoBlock) {
         await banIp(ip, '[Automated] >10 invalid webhook token requests within 1 hour.');
-        await redis.del(`invalidWebhookToken:${ip}`);
+        await redis.del(`invalidWebhookToken:${hash}`);
     }
 
     return violations;
@@ -187,10 +197,13 @@ async function getWebhookBanInfo(id: string): Promise<string> {
     return ban?.reason;
 }
 
-async function getIPBanInfo(id: string): Promise<{ reason: string; expires: Date }> {
-    if (id === 'localhost' || id === '::1' || id === '127.0.0.1' || id === '::ffff:127.0.0.1') return undefined; //ignore ourselves
+async function getIPBanInfo(ip: string): Promise<{ reason: string; expires: Date }> {
+    if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') return undefined; //ignore ourselves
 
-    const data = await redis.get(`ipBan:${id}`);
+    // generate a hash for redis since IPv6 is a pain to store in redis
+    const hash = crypto.createHash('sha1').update(ip).digest('hex');
+
+    const data = await redis.get(`ipBan:${hash}`);
     if (data) {
         const ban = JSON.parse(data);
         if (ban === null) return undefined;
@@ -199,7 +212,7 @@ async function getIPBanInfo(id: string): Promise<{ reason: string; expires: Date
 
     const ban = await db.bannedIP.findUnique({
         where: {
-            id
+            id: ip
         },
         select: {
             reason: true,
@@ -211,16 +224,16 @@ async function getIPBanInfo(id: string): Promise<{ reason: string; expires: Date
         if (ban.expires.getTime() <= Date.now()) {
             await db.bannedIP.delete({
                 where: {
-                    id
+                    id: ip
                 }
             });
-            await redis.del(`ipBan:${id}`);
+            await redis.del(`ipBan:${hash}`);
             return undefined;
         }
     }
 
     await redis.set(
-        `ipBan:${id}`,
+        `ipBan:${hash}`,
         JSON.stringify(ban),
         'PXAT',
         ban?.expires.getTime() ?? Date.now() + 24 * 60 * 60 * 1000
