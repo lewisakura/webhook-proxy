@@ -530,6 +530,8 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         res.setHeader(header, response.headers[header]);
     }
 
+    res.removeHeader('Transfer-Encoding'); // the proxy changes how this is encoded, so it's wrong to actually include this header even if Discord does
+    
     res.setHeader('Via', '1.0 WebhookProxy');
 
     return res.status(response.status).json(response.data);
@@ -596,6 +598,8 @@ app.patch(
         for (const header of Object.keys(response.headers)) {
             res.setHeader(header, response.headers[header]);
         }
+        
+        res.removeHeader('Transfer-Encoding'); // the proxy changes how this is encoded, so it's wrong to actually include this header even if Discord does
 
         res.setHeader('Via', '1.0 WebhookProxy');
 
@@ -653,6 +657,8 @@ app.delete(
         for (const header of Object.keys(response.headers)) {
             res.setHeader(header, response.headers[header]);
         }
+        
+        res.removeHeader('Transfer-Encoding'); // the proxy changes how this is encoded, so it's wrong to actually include this header even if Discord does
 
         res.setHeader('Via', '1.0 WebhookProxy');
 
