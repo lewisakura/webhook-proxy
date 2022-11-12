@@ -374,7 +374,7 @@ async function preRequestChecks(req: Request, res: Response) {
         warn(req.params.id, 'attempted to request whilst blocked for', banInfo);
         res.status(403).json({
             proxy: true,
-            message: 'This webhook has been blocked. Please contact @LewisTehMinerz on the DevForum.',
+            message: 'This webhook has been blocked. Please contact @lewisakura on the DevForum.',
             reason: banInfo
         });
         return false;
