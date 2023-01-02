@@ -410,8 +410,8 @@ async function preRequestChecks(req: Request, res: Response) {
     }
 
     // if we know this webhook is already ratelimited, don't hit discord but reject the request instead
-    const ratelimit = await redis.get(`webhookRatelimit:${req.params.id}`);
-    if (ratelimit) {
+    const ratelimit = parseInt(await redis.get(`webhookRatelimit:${req.params.id}`));
+    if (ratelimit === 0) {
         res.setHeader('X-RateLimit-Limit', 5);
         res.setHeader('X-RateLimit-Remaining', 0);
         res.setHeader('X-RateLimit-Reset', ratelimit);
@@ -497,15 +497,13 @@ async function postRequestChecks(req: Request, res: Response, response: AxiosRes
         await trackBadRequest(req.params.id);
     }
 
-    if (parseInt(response.headers['x-ratelimit-remaining']) === 0) {
-        // process ratelimits
-        await redis.set(
-            `webhookRatelimit:${req.params.id}`,
-            parseInt(response.headers['x-ratelimit-reset']),
-            'EXAT',
-            parseInt(response.headers['x-ratelimit-reset'])
-        );
-    }
+    // process ratelimits
+    await redis.set(
+        `webhookRatelimit:${req.params.id}`,
+        response.headers['x-ratelimit-remaining'],
+        'EXAT',
+        parseInt(response.headers['x-ratelimit-reset'])
+    );
 
     return true;
 }
