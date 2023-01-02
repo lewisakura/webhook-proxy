@@ -74,7 +74,8 @@ for (const [_, iface] of Object.entries(os.networkInterfaces())) {
                 }),
                 headers: {
                     'User-Agent': 'WebhookProxy/1.0 (https://github.com/lewisakura/webhook-proxy)'
-                }
+                },
+                validateStatus: () => true
             })
         );
         log('Discovered IP address', net.address);
