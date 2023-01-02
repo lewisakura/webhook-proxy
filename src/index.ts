@@ -402,7 +402,7 @@ async function preRequestChecks(req: Request, res: Response) {
         warn(req.params.id, 'attempted to request whilst blocked for', banInfo);
         res.status(403).json({
             proxy: true,
-            message: 'This webhook has been blocked. Please contact @LewisTehMinerz on the DevForum.',
+            message: 'This webhook has been blocked. Please contact @lewisakura on the DevForum.',
             reason: banInfo
         });
         return false;
@@ -557,6 +557,8 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         res.setHeader(header, response.headers[header]);
     }
 
+    res.removeHeader('Transfer-Encoding'); // the proxy changes how this is encoded, so it's wrong to actually include this header even if Discord does
+
     res.setHeader('Via', '1.0 WebhookProxy');
 
     return res.status(response.status).json(response.data);
@@ -623,6 +625,8 @@ app.patch(
             res.setHeader(header, response.headers[header]);
         }
 
+        res.removeHeader('Transfer-Encoding'); // the proxy changes how this is encoded, so it's wrong to actually include this header even if Discord does
+
         res.setHeader('Via', '1.0 WebhookProxy');
 
         return res.status(response.status).json(response.data);
@@ -679,6 +683,8 @@ app.delete(
             res.setHeader(header, response.headers[header]);
         }
 
+        res.removeHeader('Transfer-Encoding'); // the proxy changes how this is encoded, so it's wrong to actually include this header even if Discord does
+
         res.setHeader('Via', '1.0 WebhookProxy');
 
         return res.status(response.status).json(response.data);
@@ -710,7 +716,7 @@ app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req
         warn(req.params.id, 'attempted to queue whilst blocked for', reason);
         return res.status(403).json({
             proxy: true,
-            message: 'This webhook has been blocked. Please contact @Lewis_Schumer on the DevForum.',
+            message: 'This webhook has been blocked. Please contact @lewisakura on the DevForum.',
             reason: reason
         });
     }

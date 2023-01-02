@@ -7,9 +7,9 @@
         <title>WebhookProxy</title>
 
         <meta property="og:title" content="WebhookProxy" />
-        <meta property="og:url" content="https://webhook.lewistehminerz.dev/" />
+        <meta property="og:url" content="https://webhook.lewisakura.moe/" />
         <meta property="og:description" content="A Discord webhook proxy, primarily for Roblox games." />
-        <meta property="og:image" content="https://webhook.lewistehminerz.dev/img/logo.png" />
+        <meta property="og:image" content="https://webhook.lewisakura.moe/img/logo.png" />
 
         <meta name="theme-color" content="#5865f2" />
 
@@ -101,7 +101,7 @@
                     <h3>Easy to Integrate</h3>
                     <p>
                         Simply replace <code>discord.com</code> with
-                        <code class="hostname">webhook.lewistehminerz.dev</code> in your webhook URL when sending.
+                        <code class="hostname">webhook.lewisakura.moe</code> in your webhook URL when sending.
                         That's it.
                     </p>
                 </div>
@@ -176,7 +176,7 @@
         <footer class="footer">
             <div class="container d-flex justify-content-between">
                 <div>
-                    A thing by <a href="https://lewistehminerz.dev/">LewisTehMinerz</a>.
+                    A thing by <a href="https://lewisakura.moe/">lewisakura</a>.
                     <span class="d-none d-lg-inline">Running version <code id="version">unknown</code>.</span>
                 </div>
 
@@ -184,7 +184,7 @@
                 <div>
                     <span class="d-none d-md-inline px-2">Is someone abusing the proxy?</span>
                     <a
-                        href="https://devforum.roblox.com/new-message?username=LewisTehMinerz&title=WebhookProxy%20Abuse%20Report&body=Please%20describe%20your%20abuse%20report%20in%20full.%20Include%20Discord%20webhook%20links/IDs%20when%20possible%20and%20show%20the%20abusive%20behaviour."
+                        href="https://devforum.roblox.com/new-message?username=lewisakura&title=WebhookProxy%20Abuse%20Report&body=Please%20describe%20your%20abuse%20report%20in%20full.%20Include%20Discord%20webhook%20links/IDs%20when%20possible%20and%20show%20the%20abusive%20behaviour."
                         class="btn btn-danger btn-xs"
                         >Report abuse <i class="fas fa-external-link-alt"></i
                     ></a>
@@ -193,7 +193,7 @@
         </footer>
 
         <a
-            href="https://github.com/lewistehminerz/webhook-proxy"
+            href="https://github.com/lewisakura/webhook-proxy"
             class="github-corner"
             aria-label="View source on GitHub"
             ><svg
@@ -263,11 +263,11 @@ httpService:PostAsync("https://discord.com/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TO
 )</code></pre>
                         <p>
                             It's very simple to convert this over to WebhookProxy. Just swap out
-                            <code>discord.com</code> with <code class="hostname">webhook.lewistehminerz.dev</code>.
+                            <code>discord.com</code> with <code class="hostname">webhook.lewisakura.dev</code>.
                         </p>
                         <pre><code class="language-lua">local httpService = game:GetService("HttpService")
 
-httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev</span>/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}",
+httpService:PostAsync("https://<span class="hostname">webhook.lewisakura.dev</span>/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}",
 	httpService:JSONEncode({
 		content = "Hello, world!"
 	})
@@ -277,7 +277,7 @@ httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev
                         <p>If you're sending many requests a second, consider switching to the queue system:</p>
                         <pre><code class="language-lua">local httpService = game:GetService("HttpService")
 
-httpService:PostAsync("https://<span class="hostname">webhook.lewistehminerz.dev</span>/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}/queue",
+httpService:PostAsync("https://<span class="hostname">webhook.lewisakura.dev</span>/api/webhooks/{WEBHOOK_ID}/{WEBHOOK_TOKEN}/queue",
 	httpService:JSONEncode({
 		content = "Hello, world!"
 	})

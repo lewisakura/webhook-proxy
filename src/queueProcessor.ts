@@ -63,7 +63,7 @@ async function run() {
                     {
                         headers: {
                             'User-Agent':
-                                'WebhookProxy-QueueProcessor/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
+                                'WebhookProxy-QueueProcessor/1.0 (https://github.com/lewisakura/webhook-proxy)',
                             'Content-Type': 'application/json'
                         }
                     }
