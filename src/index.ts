@@ -65,7 +65,7 @@ function client() {
 
 for (const [_, iface] of Object.entries(os.networkInterfaces())) {
     for (const net of iface) {
-        if (net.internal || net.family === 'IPv4') continue;
+        if (net.internal || net.family !== 'IPv4') continue;
         axiosClients.push(
             axios.create({
                 httpsAgent: new https.Agent({
