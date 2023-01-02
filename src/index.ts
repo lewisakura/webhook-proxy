@@ -1,4 +1,4 @@
-import axios, { AxiosResponse } from 'axios';
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import bodyParser from 'body-parser';
 import Express, { NextFunction, Request, Response } from 'express';
 import slowDown from 'express-slow-down';
@@ -9,6 +9,8 @@ import Redis from 'ioredis';
 
 import crypto from 'crypto';
 import fs from 'fs';
+import https from 'https';
+import os from 'os';
 
 import beforeShutdown from './beforeShutdown';
 import { error, log, warn } from './log';
@@ -48,6 +50,36 @@ beforeShutdown(async () => {
     await db.$disconnect();
     redis.disconnect(false);
 });
+
+const axiosClients: AxiosInstance[] = [];
+
+let currentRobin = 0;
+function client() {
+    const instance = axiosClients[currentRobin];
+
+    currentRobin++;
+    if (currentRobin === axiosClients.length) currentRobin = 0;
+
+    return instance;
+}
+
+for (const [_, iface] of Object.entries(os.networkInterfaces())) {
+    for (const net of iface) {
+        if (net.internal || net.family === 'IPv4') continue;
+        axiosClients.push(
+            axios.create({
+                httpsAgent: new https.Agent({
+                    // @ts-ignore - undocumented
+                    localAddress: net.address
+                }),
+                headers: {
+                    'User-Agent': 'WebhookProxy/1.0 (https://github.com/lewisakura/webhook-proxy)'
+                }
+            })
+        );
+        log('Discovered IP address', net.address);
+    }
+}
 
 let rabbitMq: amqp.Channel;
 
@@ -313,10 +345,6 @@ const statsEndpointRatelimit = slowDown({
     store: new RedisStore({ client: redis, prefix: 'ratelimit:statsEndpoint:' })
 });
 
-const client = axios.create({
-    validateStatus: () => true
-});
-
 app.use(Express.static('public'));
 
 app.get('/stats', statsEndpointRatelimit, async (req, res) => {
@@ -510,14 +538,13 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     const wait = req.query.wait ?? false;
     const threadId = req.query.thread_id;
 
-    const response = await client.post(
+    const response = await client().post(
         `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}?wait=${wait}${
             threadId ? '&thread_id=' + threadId : ''
         }`,
         body,
         {
             headers: {
-                'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
                 'Content-Type': 'application/json'
             }
         }
@@ -577,14 +604,13 @@ app.patch(
 
         const threadId = req.query.thread_id;
 
-        const response = await client.patch(
+        const response = await client().patch(
             `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}/messages/${req.params.messageId}${
                 threadId ? '?thread_id=' + threadId : ''
             }`,
             body,
             {
                 headers: {
-                    'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
                     'Content-Type': 'application/json'
                 }
             }
@@ -635,13 +661,12 @@ app.delete(
 
         const threadId = req.query.thread_id;
 
-        const response = await client.delete(
+        const response = await client().delete(
             `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}/messages/${req.params.messageId}${
                 threadId ? '?thread_id=' + threadId : ''
             }`,
             {
                 headers: {
-                    'User-Agent': 'WebhookProxy/1.0 (https://github.com/LewisTehMinerz/webhook-proxy)',
                     'Content-Type': 'application/json'
                 }
             }
