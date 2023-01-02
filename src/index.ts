@@ -42,6 +42,7 @@ const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
         queue: string;
     };
     redis: string;
+    abuseThreshold: number;
 };
 
 const db = new PrismaClient();
@@ -51,7 +52,8 @@ beforeShutdown(async () => {
     redis.disconnect(false);
 });
 
-const axiosClients: AxiosInstance[] = [];
+type AxiosClientTuple = [client: AxiosInstance, ip: string];
+const axiosClients: AxiosClientTuple[] = [];
 
 let currentRobin = 0;
 function client() {
@@ -63,10 +65,33 @@ function client() {
     return instance;
 }
 
+let currentSafeRobin = 0;
+async function clientSafe(startedAt: number = null): Promise<AxiosClientTuple | null> {
+    const instance = axiosClients[currentSafeRobin];
+
+    currentSafeRobin++;
+
+    if (startedAt === currentSafeRobin) return null; // means there is no suitable client
+    if (currentSafeRobin === axiosClients.length) currentSafeRobin = 0;
+
+    if (parseInt(await redis.get(`clientAbuse:${instance[1]}`)) >= config.abuseThreshold)
+        return clientSafe(currentSafeRobin);
+
+    return instance;
+}
+
+async function getClient(webhookId: string) {
+    if (!(await redis.get(`webhooksSeen:${webhookId}`)) || (await redis.get(`webhooksSeen:${webhookId}`)) === 'false') {
+        return clientSafe();
+    } else {
+        return client();
+    }
+}
+
 for (const [_, iface] of Object.entries(os.networkInterfaces())) {
     for (const net of iface) {
         if (net.internal || net.family !== 'IPv4') continue;
-        axiosClients.push(
+        axiosClients.push([
             axios.create({
                 httpsAgent: new https.Agent({
                     // @ts-ignore - undocumented
@@ -76,8 +101,9 @@ for (const [_, iface] of Object.entries(os.networkInterfaces())) {
                     'User-Agent': 'WebhookProxy/1.0 (https://github.com/lewisakura/webhook-proxy)'
                 },
                 validateStatus: () => true
-            })
-        );
+            }),
+            net.address
+        ]);
         log('Discovered IP address', net.address);
     }
 }
@@ -164,7 +190,7 @@ async function trackBadRequest(id: string) {
     return violations;
 }
 
-async function trackNonExistentWebhook(ip: string) {
+async function trackNonExistentWebhook(ip: string, clientAddress: string) {
     if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') return; //ignore ourselves
 
     // generate a hash for redis since IPv6 is a pain to store in redis
@@ -178,8 +204,11 @@ async function trackNonExistentWebhook(ip: string) {
 
     warn(ip, 'made a request to a nonexistent webhook, they have done so', violations, 'time within the window');
 
-    if (violations > 5 && config.autoBlock) {
-        await banIp(ip, '[Automated] >5 unique non-existent webhook requests within 1 hour.');
+    await redis.incr(`clientAbuse:${clientAddress}`);
+    await redis.send_command('EXPIRE', [`clientAbuse:${clientAddress}`, 86400, 'NX']);
+
+    if (violations > 2 && config.autoBlock) {
+        await banIp(ip, '[Automated] >2 unique non-existent webhook requests within 1 hour.');
         await redis.del(`nonExistentWebhooks:${hash}`);
     }
 
@@ -365,15 +394,6 @@ app.get('/announcement', async (req, res) => {
     const announcement = await redis.hgetall('announcement');
 
     if (!announcement.style) {
-        // check for abuse measures and inject automatic announcement if necessary
-        if (parseInt(await redis.get('nonExistentWebhooks')) > 12)
-            return res.json({
-                title: 'Anti-Abuse Engaged',
-                message:
-                    'WebhookProxy has detected potential abuse that could affect the service as a whole, and has stopped accepting new webhook requests for 24 hours. Please try your requests later.',
-                style: 'danger'
-            });
-
         return res.json({});
     }
 
@@ -425,30 +445,18 @@ async function preRequestChecks(req: Request, res: Response) {
         return false;
     }
 
-    // antiabuse in case someone tries something funny
-    if (parseInt(await redis.get('nonExistentWebhooks')) > 12) {
-        if (!(await redis.exists(`webhooksSeen:${req.params.id}`))) {
-            await redis.set(
-                `webhooksSeen:${req.params.id}`,
-                (!!(await db.webhooksSeen.findUnique({ where: { id: req.params.id } }))).toString()
-            );
-            await redis.send_command('EXPIRE', [`webhooksSeen:${req.params.id}`, 600, 'NX']);
-        }
-
-        if ((await redis.get(`webhooksSeen:${req.params.id}`)) === 'false') {
-            res.status(403).json({
-                proxy: true,
-                message:
-                    'An anti-abuse mechanism has been fired and your webhook has not been seen before. Try again later.'
-            });
-            return false;
-        }
+    if (!(await redis.exists(`webhooksSeen:${req.params.id}`))) {
+        await redis.set(
+            `webhooksSeen:${req.params.id}`,
+            (!!(await db.webhooksSeen.findUnique({ where: { id: req.params.id } }))).toString()
+        );
+        await redis.send_command('EXPIRE', [`webhooksSeen:${req.params.id}`, 600, 'NX']);
     }
 
     return true;
 }
 
-async function postRequestChecks(req: Request, res: Response, response: AxiosResponse<any>) {
+async function postRequestChecks(req: Request, res: Response, response: AxiosResponse<any>, clientAddress: string) {
     if (response.status === 401 && response.data.code === 50027 /* invalid webhook token */) {
         await trackInvalidWebhookToken(req.ip);
 
@@ -473,7 +481,7 @@ async function postRequestChecks(req: Request, res: Response, response: AxiosRes
             }
         });
 
-        await trackNonExistentWebhook(req.ip);
+        await trackNonExistentWebhook(req.ip, clientAddress);
 
         res.status(404).json({
             proxy: true,
@@ -537,7 +545,17 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
     const wait = req.query.wait ?? false;
     const threadId = req.query.thread_id;
 
-    const response = await client().post(
+    const axios = await getClient(req.params.id);
+
+    if (!axios) {
+        res.status(403).json({
+            proxy: true,
+            error: 'The proxy has not seen your webhook before, and is currently unable to service your request.'
+        });
+        return false;
+    }
+
+    const response = await axios[0].post(
         `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}?wait=${wait}${
             threadId ? '&thread_id=' + threadId : ''
         }`,
@@ -549,7 +567,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         }
     );
 
-    if (!(await postRequestChecks(req, res, response))) return;
+    if (!(await postRequestChecks(req, res, response, axios[1]))) return;
 
     // forward headers to allow clients to process ratelimits themselves
     for (const header of Object.keys(response.headers)) {
@@ -605,7 +623,17 @@ app.patch(
 
         const threadId = req.query.thread_id;
 
-        const response = await client().patch(
+        const axios = await getClient(req.params.id);
+
+        if (!axios) {
+            res.status(403).json({
+                proxy: true,
+                error: 'The proxy has not seen your webhook before, and is currently unable to service your request.'
+            });
+            return false;
+        }
+
+        const response = await axios[0].patch(
             `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}/messages/${req.params.messageId}${
                 threadId ? '?thread_id=' + threadId : ''
             }`,
@@ -617,7 +645,7 @@ app.patch(
             }
         );
 
-        if (!(await postRequestChecks(req, res, response))) return;
+        if (!(await postRequestChecks(req, res, response, axios[1]))) return;
 
         // forward headers to allow clients to process ratelimits themselves
         for (const header of Object.keys(response.headers)) {
@@ -664,7 +692,17 @@ app.delete(
 
         const threadId = req.query.thread_id;
 
-        const response = await client().delete(
+        const axios = await getClient(req.params.id);
+
+        if (!axios) {
+            res.status(403).json({
+                proxy: true,
+                error: 'The proxy has not seen your webhook before, and is currently unable to service your request.'
+            });
+            return false;
+        }
+
+        const response = await axios[0].delete(
             `https://discord.com/api/webhooks/${req.params.id}/${req.params.token}/messages/${req.params.messageId}${
                 threadId ? '?thread_id=' + threadId : ''
             }`,
@@ -675,7 +713,7 @@ app.delete(
             }
         );
 
-        if (!(await postRequestChecks(req, res, response))) return;
+        if (!(await postRequestChecks(req, res, response, axios[1]))) return;
 
         // forward headers to allow clients to process ratelimits themselves
         for (const header of Object.keys(response.headers)) {

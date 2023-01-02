@@ -26,3 +26,9 @@ model BannedIP {
 model WebhooksSeen {
   id String @id
 }
+
+model BannedGame {
+  id String @id
+
+  reason String
+}
