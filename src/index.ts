@@ -113,7 +113,7 @@ let rabbitMq: amqp.Channel;
 
 let requestsHandled = 0;
 
-async function banWebhook(id: string, reason: string) {
+async function banWebhook(id: string, reason: string, gameId?: string) {
     // set the cached version up first so we prevent race conditions.
     //
     // without setting the cache first, we might hit a point where two requests trigger a ban.
@@ -133,7 +133,7 @@ async function banWebhook(id: string, reason: string) {
         }
     });
 
-    warn('banned', id, 'for', reason);
+    warn('banned', formatId(id, gameId), 'for', reason);
 }
 
 async function banIp(ip: string, reason: string) {
@@ -162,11 +162,11 @@ async function banIp(ip: string, reason: string) {
     warn('banned', ip, 'for', reason);
 }
 
-async function trackRatelimitViolation(id: string) {
+async function trackRatelimitViolation(id: string, gameId?: string) {
     const violations = await redis.incr(`webhookRatelimitViolation:${id}`);
     await redis.send_command('EXPIRE', [`webhookRatelimitViolation:${id}`, 60, 'NX']);
 
-    warn(id, 'hit ratelimit, they have done so', violations, 'times within the window');
+    warn(formatId(id, gameId), 'hit ratelimit, they have done so', violations, 'times within the window');
 
     if (violations > 50 && config.autoBlock) {
         await banWebhook(id, '[Automated] Ratelimited >50 times within a minute.');
@@ -177,11 +177,11 @@ async function trackRatelimitViolation(id: string) {
     return violations;
 }
 
-async function trackBadRequest(id: string) {
+async function trackBadRequest(id: string, gameId?: string) {
     const violations = await redis.incr(`badRequests:${id}`);
     await redis.send_command('EXPIRE', [`badRequests:${id}`, 600, 'NX']);
 
-    warn(id, 'made a bad request, they have made', violations, 'within the window');
+    warn(formatId(id, gameId), 'made a bad request, they have made', violations, 'within the window');
 
     if (violations > 30 && config.autoBlock) {
         await banWebhook(id, '[Automated] >30 bad requests within 10 minutes.');
@@ -322,6 +322,14 @@ async function getIPBanInfo(ip: string): Promise<{ reason: string; expires: Date
     return ban;
 }
 
+function formatId(id: string, gameId?: string) {
+    if (gameId) {
+        return `${id} (belonging to ${gameId})`;
+    } else {
+        return id;
+    }
+}
+
 app.set('trust proxy', config.trustProxy);
 
 app.use(
@@ -423,7 +431,7 @@ app.get('/announcement', async (req, res) => {
 });
 
 // sure this could be middleware but I want better control
-async function preRequestChecks(req: Request, res: Response) {
+async function preRequestChecks(req: Request, res: Response, gameId?: string) {
     const ipBan = await getIPBanInfo(req.ip);
     if (ipBan) {
         warn('ip', req.ip, 'attempted to request to', req.params.id, 'whilst banned');
@@ -436,7 +444,6 @@ async function preRequestChecks(req: Request, res: Response) {
         return false;
     }
 
-    const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
     if (gameId) {
         const gameBan = await getGameBanInfo(gameId);
         if (gameBan) {
@@ -452,7 +459,7 @@ async function preRequestChecks(req: Request, res: Response) {
 
     const banInfo = await getWebhookBanInfo(req.params.id);
     if (banInfo) {
-        warn(req.params.id, 'attempted to request whilst blocked for', banInfo);
+        warn(formatId(req.params.id, gameId), 'attempted to request whilst blocked for', banInfo);
         res.status(403).json({
             proxy: true,
             message: 'This webhook has been blocked. Please contact @lewisakura on the DevForum.',
@@ -468,7 +475,7 @@ async function preRequestChecks(req: Request, res: Response) {
         res.setHeader('X-RateLimit-Remaining', 0);
         res.setHeader('X-RateLimit-Reset', ratelimit);
 
-        await trackRatelimitViolation(req.params.id);
+        await trackRatelimitViolation(req.params.id, gameId);
 
         res.status(429).json({
             proxy: true,
@@ -478,11 +485,9 @@ async function preRequestChecks(req: Request, res: Response) {
     }
 
     if (!(await redis.exists(`webhooksSeen:${req.params.id}`))) {
-        const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
-
         await redis.set(
             `webhooksSeen:${req.params.id}`,
-            (!!(await db.webhooksSeen.findFirst({ where: { id: req.params.id, belongsTo: gameId } }))).toString()
+            (!!(await db.webhooksSeen.findFirst({ where: { id: req.params.id } }))).toString()
         );
         await redis.send_command('EXPIRE', [`webhooksSeen:${req.params.id}`, 600, 'NX']);
     }
@@ -490,7 +495,13 @@ async function preRequestChecks(req: Request, res: Response) {
     return true;
 }
 
-async function postRequestChecks(req: Request, res: Response, response: AxiosResponse<any>, clientAddress: string) {
+async function postRequestChecks(
+    req: Request,
+    res: Response,
+    response: AxiosResponse<any>,
+    clientAddress: string,
+    gameId?: string
+) {
     if (response.status === 401 && response.data.code === 50027 /* invalid webhook token */) {
         await trackInvalidWebhookToken(req.ip);
 
@@ -536,7 +547,7 @@ async function postRequestChecks(req: Request, res: Response, response: AxiosRes
     }
 
     if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-        await trackBadRequest(req.params.id);
+        await trackBadRequest(req.params.id, gameId);
     }
 
     // process ratelimits
@@ -564,7 +575,9 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         return false;
     }
 
-    if (!(await preRequestChecks(req, res))) return;
+    const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
+
+    if (!(await preRequestChecks(req, res, gameId))) return;
 
     const body = req.body;
 
@@ -601,7 +614,7 @@ app.post('/api/webhooks/:id/:token', webhookPostRatelimit, webhookInvalidPostRat
         }
     );
 
-    if (!(await postRequestChecks(req, res, response, axios[1]))) return;
+    if (!(await postRequestChecks(req, res, response, axios[1], gameId))) return;
 
     // forward headers to allow clients to process ratelimits themselves
     for (const header of Object.keys(response.headers)) {
@@ -643,7 +656,9 @@ app.patch(
             });
         }
 
-        if (!(await preRequestChecks(req, res))) return;
+        const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
+
+        if (!(await preRequestChecks(req, res, gameId))) return;
 
         const body = req.body;
 
@@ -679,7 +694,7 @@ app.patch(
             }
         );
 
-        if (!(await postRequestChecks(req, res, response, axios[1]))) return;
+        if (!(await postRequestChecks(req, res, response, axios[1], gameId))) return;
 
         // forward headers to allow clients to process ratelimits themselves
         for (const header of Object.keys(response.headers)) {
@@ -722,7 +737,9 @@ app.delete(
             });
         }
 
-        if (!(await preRequestChecks(req, res))) return;
+        const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
+
+        if (!(await preRequestChecks(req, res, gameId))) return;
 
         const threadId = req.query.thread_id;
 
@@ -747,7 +764,7 @@ app.delete(
             }
         );
 
-        if (!(await postRequestChecks(req, res, response, axios[1]))) return;
+        if (!(await postRequestChecks(req, res, response, axios[1], gameId))) return;
 
         // forward headers to allow clients to process ratelimits themselves
         for (const header of Object.keys(response.headers)) {

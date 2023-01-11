@@ -31,6 +31,4 @@ model BannedGame {
 
 model WebhooksSeen {
   id String @id
-
-  belongsTo String?
 }
