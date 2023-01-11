@@ -795,13 +795,13 @@ app.post('/api/webhooks/:id/:token/queue', webhookQueuePostRatelimit, async (req
         });
     }
 
+    const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
     const threadId = req.query.thread_id;
-
     const body = req.body;
 
     const reason = await getWebhookBanInfo(req.params.id);
     if (reason) {
-        warn(req.params.id, 'attempted to queue whilst blocked for', reason);
+        warn(formatId(req.params.id, gameId), 'attempted to queue whilst blocked for', reason);
         return res.status(403).json({
             proxy: true,
             message: 'This webhook has been blocked. Please contact @lewisakura on the DevForum.',
