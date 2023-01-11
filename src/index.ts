@@ -14,6 +14,7 @@ import os from 'os';
 
 import beforeShutdown from './beforeShutdown';
 import { error, log, warn } from './log';
+import { robloxRanges } from './robloxRanges';
 
 import 'express-async-errors';
 import { setup } from './rmq';
@@ -259,6 +260,23 @@ async function getWebhookBanInfo(id: string): Promise<string> {
     return ban?.reason;
 }
 
+async function getGameBanInfo(id: string): Promise<string> {
+    const data = await redis.get(`gameBan:${id}`);
+    if (data) {
+        return data;
+    }
+
+    const ban = await db.bannedGame.findUnique({
+        where: {
+            id
+        }
+    });
+
+    await redis.set(`gameBan:${id}`, ban?.reason, 'EX', 24 * 60 * 60);
+
+    return ban?.reason;
+}
+
 async function getIPBanInfo(ip: string): Promise<{ reason: string; expires: Date }> {
     if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') return undefined; //ignore ourselves
 
@@ -418,6 +436,20 @@ async function preRequestChecks(req: Request, res: Response) {
         return false;
     }
 
+    const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
+    if (gameId) {
+        const gameBan = await getGameBanInfo(gameId);
+        if (gameBan) {
+            warn('game', gameId, 'attempted to request to', req.params.id, 'whilst banned');
+            res.status(403).json({
+                proxy: true,
+                message: 'This game has been banned.',
+                reason: gameBan
+            });
+            return false;
+        }
+    }
+
     const banInfo = await getWebhookBanInfo(req.params.id);
     if (banInfo) {
         warn(req.params.id, 'attempted to request whilst blocked for', banInfo);
@@ -446,9 +478,11 @@ async function preRequestChecks(req: Request, res: Response) {
     }
 
     if (!(await redis.exists(`webhooksSeen:${req.params.id}`))) {
+        const gameId = robloxRanges.check(req.ip) ? req.header('roblox-id') : undefined;
+
         await redis.set(
             `webhooksSeen:${req.params.id}`,
-            (!!(await db.webhooksSeen.findUnique({ where: { id: req.params.id } }))).toString()
+            (!!(await db.webhooksSeen.findFirst({ where: { id: req.params.id, belongsTo: gameId } }))).toString()
         );
         await redis.send_command('EXPIRE', [`webhooksSeen:${req.params.id}`, 600, 'NX']);
     }

@@ -23,6 +23,14 @@ model BannedIP {
   expires DateTime
 }
 
+model BannedGame {
+  id String @id
+
+  reason String
+}
+
 model WebhooksSeen {
   id String @id
+
+  belongsTo String?
 }
