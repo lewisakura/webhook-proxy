@@ -144,7 +144,7 @@ async function banIp(ip: string, reason: string) {
     // generate a hash for redis since IPv6 is a pain to store in redis
     const hash = crypto.createHash('sha1').update(ip).digest('hex');
 
-    await redis.set(`ipBan:${hash}`, reason, 'PXAT', expiry.getTime());
+    await redis.set(`ipBan:${hash}`, JSON.stringify({ reason, expires: expiry }), "PXAT", expiry.getTime());
     await db.bannedIP.upsert({
         where: {
             id: ip
