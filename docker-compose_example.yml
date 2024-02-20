@@ -11,7 +11,7 @@ services:
   #   networks:
   #     - external
   #     - internal
-  #   port:
+  #   ports:
   #     - 80:80
   #   ...
 
@@ -33,6 +33,8 @@ services:
       QUEUE_QUEUE: "webhook-proxy"
       REDIS: "redis://redis/0"
       ABUSE_THRESHOLD: 12
+    ports:
+      - 80:80
 
   webhook-proxy-redis:
     image: redis:7-alpine

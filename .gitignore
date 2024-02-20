@@ -6,4 +6,5 @@ blocklist.json
 proxy.db
 proxy.db-journal
 redis/
+docker-compose.yml
 
