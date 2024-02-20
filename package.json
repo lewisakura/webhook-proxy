@@ -3,7 +3,7 @@
         "update": "git pull && yarn && yarn build && pm2 reload webhook-proxy webhook-proxy-processor || true",
         "build": "DATABASE_URL=file:./proxy.db prisma migrate deploy && prisma generate && rimraf dist && tsc",
         "docker:build": "prisma generate && rimraf dist && tsc",
-	"docker:start": "DATABASE_URL=file:/data/proxy.db prisma migrate deploy && DATABASE_URL=file:/data/proxy.db node dist",
+        "docker:start": "DATABASE_URL=file:/data/proxy.db prisma migrate deploy && DATABASE_URL=file:/data/proxy.db node dist",
         "start": "yarn build && DATABASE_URL=file:./proxy.db node dist"
     },
     "dependencies": {
