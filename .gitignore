@@ -7,4 +7,5 @@ proxy.db
 proxy.db-journal
 redis/
 docker-compose.yml
+data/
 

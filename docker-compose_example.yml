@@ -35,6 +35,9 @@ services:
       ABUSE_THRESHOLD: 12
     ports:
       - 80:80
+    volumes:
+      - ./proxy.db:/app/proxy.db
+      - ./proxy.db-journal:/app/proxy.db-journal
 
   webhook-proxy-redis:
     image: redis:7-alpine

@@ -19,7 +19,7 @@ import { robloxRanges } from './robloxRanges';
 import 'express-async-errors';
 import { setup } from './rmq';
 
-const VERSION = (() => {
+const VERSION = process.env.VERSION || (() => {
     const rev = fs.readFileSync('.git/HEAD').toString().trim();
     if (rev.indexOf(':') === -1) {
         return rev;

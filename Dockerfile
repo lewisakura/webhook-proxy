@@ -4,6 +4,7 @@ FROM --platform=$BUILDPLATFORM $NODE_TAG AS base
 
 ADD . /app
 WORKDIR /app
+ENV DATABASE_URL "file:/data/proxy.db"
 
 # Enable yarn and install system packages
 RUN corepack enable && apk add openssl1.1-compat-dev
@@ -22,6 +23,7 @@ FROM base AS prod
 RUN --mount=type=cache,target=/root.yarn YARN_CACHE_FOLDER=/root.yarn yarn install --production
 
 COPY --from=builder /app/dist /app/dist
+ENV VERSION "docker"
 
 CMD [ "yarn", "docker:start" ]
 
