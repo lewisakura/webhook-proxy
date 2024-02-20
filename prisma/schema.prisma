@@ -3,7 +3,7 @@
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./proxy.db"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -12,7 +12,6 @@ generator client {
 
 model BannedWebhook {
   id String @id
-
   reason String
 }
 
