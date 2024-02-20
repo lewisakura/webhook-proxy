@@ -68,7 +68,7 @@ for (const envItem of [
     [ 'AUTO_BLOCK', (value:string) => { config.autoBlock = parseConfigBoolean(value) } ],
     [ 'QUEUE_ENABLED', (value:string) => { (config.queue ?? ( config.queue = {} as typeof config["queue"] )).enabled = parseConfigBoolean(value) } ],
     [ 'QUEUE_RABBITMQ', (value:string) => { (config.queue ?? ( config.queue = {} as typeof config["queue"] )).rabbitmq = value } ],
-    [ 'QUEUE', (value:string) => { (config.queue ?? ( config.queue = {} as typeof config["queue"] )).queue = value } ],
+    [ 'QUEUE_QUEUE', (value:string) => { (config.queue ?? ( config.queue = {} as typeof config["queue"] )).queue = value } ],
     [ 'REDIS', (value:string) => { config.redis = value } ],
     [ 'ABUSE_THRESHOLD', (value:string) => { config.abuseThreshold = parseInt(value) } ],
 ] as Array<[string, (value:string)=>undefined ]>) {

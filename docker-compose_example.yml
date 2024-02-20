@@ -1,0 +1,49 @@
+version: '3.8'
+networks:
+  external:
+  internal:
+    internal: true
+
+services:
+  # You can configure reverse proxy to establish https connection
+  # Consider, use caddy
+  # caddy:
+  #   networks:
+  #     - external
+  #     - internal
+  #   port:
+  #     - 80:80
+  #   ...
+
+  webhook-proxy:
+    depends_on:
+      webhook-proxy-redis:
+        condition: service_healthy
+    build: .
+    restart: unless-stopped
+    networks:
+      - external
+      - internal
+    environment:
+      PORT: 80
+      TRUST_PROXY: false
+      AUTO_BLOCK: false
+      QUEUE_ENABLED: false
+      QUEUE_RABBITMQ: "amqp://localhost"
+      QUEUE_QUEUE: "webhook-proxy"
+      REDIS: "redis://redis/0"
+      ABUSE_THRESHOLD: 12
+
+  webhook-proxy-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - ./redis:/data
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 10s
+      retries: 20
+    hostname: redis
+
