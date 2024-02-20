@@ -1,10 +1,10 @@
 {
     "scripts": {
         "update": "git pull && yarn && yarn build && pm2 reload webhook-proxy webhook-proxy-processor || true",
-        "build": "prisma migrate deploy && prisma generate && rimraf dist && tsc",
+        "build": "DATABASE_URL=file:./proxy.db prisma migrate deploy && prisma generate && rimraf dist && tsc",
         "docker:build": "prisma generate && rimraf dist && tsc",
-	"docker:start": "prisma migrate deploy && node dist",
-        "start": "yarn build && node dist"
+	"docker:start": "DATABASE_URL=file:/data/proxy.db prisma migrate deploy && DATABASE_URL=file:/data/proxy.db node dist",
+        "start": "yarn build && DATABASE_URL=file:./proxy.db node dist"
     },
     "dependencies": {
         "@prisma/client": "^3.14.0",

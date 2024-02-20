@@ -16,6 +16,8 @@ services:
   #   ...
 
   webhook-proxy:
+    links:
+      - webhook-proxy-redis:redis
     depends_on:
       webhook-proxy-redis:
         condition: service_healthy
@@ -31,13 +33,12 @@ services:
       QUEUE_ENABLED: false
       QUEUE_RABBITMQ: "amqp://localhost"
       QUEUE_QUEUE: "webhook-proxy"
-      REDIS: "redis://redis/0"
+      REDIS: "redis://redis"
       ABUSE_THRESHOLD: 12
     ports:
       - 80:80
     volumes:
-      - ./proxy.db:/app/proxy.db
-      - ./proxy.db-journal:/app/proxy.db-journal
+      - ./data:/data
 
   webhook-proxy-redis:
     image: redis:7-alpine
@@ -50,5 +51,4 @@ services:
       test: "redis-cli ping"
       interval: 10s
       retries: 20
-    hostname: redis
 
