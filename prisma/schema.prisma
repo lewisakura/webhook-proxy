@@ -12,7 +12,6 @@ generator client {
 
 model BannedWebhook {
   id String @id
-
   reason String
 }
 
