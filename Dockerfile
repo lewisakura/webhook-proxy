@@ -1,4 +1,4 @@
-ARG NODE_TAG=node:21-alpine
+ARG NODE_TAG=node:21-bullseye
 
 FROM --platform=$BUILDPLATFORM $NODE_TAG AS base
 
@@ -6,7 +6,7 @@ ADD . /app
 WORKDIR /app
 
 # Enable yarn and install system packages
-RUN corepack enable && apk add openssl1.1-compat-dev
+RUN corepack enable && apt install -y libssl1.1
 
 FROM base AS builder
 
