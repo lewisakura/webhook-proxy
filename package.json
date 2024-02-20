@@ -2,6 +2,8 @@
     "scripts": {
         "update": "git pull && yarn && yarn build && pm2 reload webhook-proxy webhook-proxy-processor || true",
         "build": "prisma migrate deploy && prisma generate && rimraf dist && tsc",
+        "docker:build": "prisma generate && rimraf dist && tsc",
+	"docker:start": "prisma migrate && node dist",
         "start": "yarn build && node dist"
     },
     "dependencies": {
