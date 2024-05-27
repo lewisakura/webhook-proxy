@@ -162,21 +162,6 @@ async function banIp(ip: string, reason: string) {
     warn('banned', ip, 'for', reason);
 }
 
-async function trackRatelimitViolation(id: string, gameId?: string) {
-    const violations = await redis.incr(`webhookRatelimitViolation:${id}`);
-    await redis.send_command('EXPIRE', [`webhookRatelimitViolation:${id}`, 60, 'NX']);
-
-    warn(formatId(id, gameId), 'hit ratelimit, they have done so', violations, 'times within the window');
-
-    if (violations > 50 && config.autoBlock) {
-        await banWebhook(id, '[Automated] Ratelimited >50 times within a minute.');
-        await redis.del(`webhookRatelimitViolation:${id}`);
-        await redis.del(`webhookRatelimit:${id}`);
-    }
-
-    return violations;
-}
-
 async function trackBadRequest(id: string, gameId?: string) {
     const violations = await redis.incr(`badRequests:${id}`);
     await redis.send_command('EXPIRE', [`badRequests:${id}`, 600, 'NX']);
@@ -477,8 +462,6 @@ async function preRequestChecks(req: Request, res: Response, gameId?: string) {
         res.setHeader('X-RateLimit-Limit', 5);
         res.setHeader('X-RateLimit-Remaining', 0);
         res.setHeader("X-RateLimit-Reset", ttl);
-
-        await trackRatelimitViolation(req.params.id, gameId);
 
         res.status(429).json({
             proxy: true,
