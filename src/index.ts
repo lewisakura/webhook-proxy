@@ -471,9 +471,12 @@ async function preRequestChecks(req: Request, res: Response, gameId?: string) {
     // if we know this webhook is already ratelimited, don't hit discord but reject the request instead
     const ratelimit = parseInt(await redis.get(`webhookRatelimit:${req.params.id}`));
     if (ratelimit === 0) {
+        // get the timestamp for reset
+        const ttl = Math.floor(Date.now() / 1000) + await redis.ttl(`webhookRatelimit:${req.params.id}`);
+
         res.setHeader('X-RateLimit-Limit', 5);
         res.setHeader('X-RateLimit-Remaining', 0);
-        res.setHeader('X-RateLimit-Reset', ratelimit);
+        res.setHeader("X-RateLimit-Reset", ttl);
 
         await trackRatelimitViolation(req.params.id, gameId);
 

@@ -47,7 +47,7 @@ async function run() {
             const data = JSON.parse(msg.content.toString());
 
             // since the actual proxy sets this key, this is a more reliable way of checking the ratelimit
-            if (await redis.exists(`webhookRatelimit:${data.id}`)) {
+            if (parseInt(await redis.get(`webhookRatelimit:${data.id}`)) === 0) {
                 // mark message as dead, will be requeued via DLX
                 return rabbitMq.reject(msg);
             }
