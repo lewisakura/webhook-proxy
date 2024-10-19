@@ -19,7 +19,7 @@ import { robloxRanges } from './robloxRanges';
 import 'express-async-errors';
 import { setup } from './rmq';
 
-const VERSION = (() => {
+const VERSION = process.env.VERSION || (() => {
     const rev = fs.readFileSync('.git/HEAD').toString().trim();
     if (rev.indexOf(':') === -1) {
         return rev;
@@ -33,11 +33,11 @@ const VERSION = (() => {
 })();
 
 const app = Express();
-const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
+let config = {} as {
     port: number;
     trustProxy: boolean;
     autoBlock: boolean;
-    queue: {
+    queue?: {
         enabled: boolean;
         rabbitmq: string;
         queue: string;
@@ -45,6 +45,38 @@ const config = JSON.parse(fs.readFileSync('./config.json', 'utf8')) as {
     redis: string;
     abuseThreshold: number;
 };
+
+if (fs.existsSync('./config.json')) {
+    config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+}
+
+function parseConfigBoolean(value:string|any):boolean {
+    if (value === "1") return true;
+    if (value === "0") return false;
+    if (value.toLowerCase() === "true") return true;
+    if (value.toLowerCase() === "false") return false;
+    if (value.toLowerCase() === "yes") return true;
+    if (value.toLowerCase() === "no") return false;
+    if (value.toLowerCase() === "y") return true;
+    if (value.toLowerCase() === "n") return false;
+}
+
+// Read configuration from env variable
+for (const envItem of [
+    [ 'PORT', (value:string) => { config.port = parseInt(value) } ],
+    [ 'TRUST_PROXY', (value:string) => { config.trustProxy = parseConfigBoolean(value) } ],
+    [ 'AUTO_BLOCK', (value:string) => { config.autoBlock = parseConfigBoolean(value) } ],
+    [ 'QUEUE_ENABLED', (value:string) => { (config.queue ?? ( config.queue = {} as typeof config["queue"] )).enabled = parseConfigBoolean(value) } ],
+    [ 'QUEUE_RABBITMQ', (value:string) => { (config.queue ?? ( config.queue = {} as typeof config["queue"] )).rabbitmq = value } ],
+    [ 'QUEUE_QUEUE', (value:string) => { (config.queue ?? ( config.queue = {} as typeof config["queue"] )).queue = value } ],
+    [ 'REDIS', (value:string) => { config.redis = value } ],
+    [ 'ABUSE_THRESHOLD', (value:string) => { config.abuseThreshold = parseInt(value) } ],
+] as Array<[string, (value:string)=>undefined ]>) {
+    const value = process.env[envItem[0]];
+    if (value !== undefined) {
+        envItem[1](value);
+    }
+}
 
 const db = new PrismaClient();
 const redis = new Redis(config.redis);
